@@ -80,6 +80,10 @@ public sealed class LlmWorldDirector : IWorldDirector
         if (string.IsNullOrWhiteSpace(text))
             throw new InvalidOperationException("LLM returned an empty response.");
 
+        // Log a short preview of the raw text for debugging bad responses.
+        var preview = text.Length > 500 ? text[..500] + "..." : text;
+        _log.LogInformation("LLM raw response (first 500 chars): {Preview}", preview);
+
         // Some models wrap JSON in ```json ... ``` fences; strip them.
         text = StripCodeFences(text);
 
@@ -113,6 +117,20 @@ public sealed class LlmWorldDirector : IWorldDirector
     private static string StripCodeFences(string text)
     {
         var t = text.Trim();
+
+        // Strip <think>...</think> reasoning blocks emitted by some models
+        // (DeepSeek, MiniMax M-series, etc.). They appear BEFORE the actual answer
+        // and break naive JSON parsing.
+        while (true)
+        {
+            var open = t.IndexOf("<think>", StringComparison.Ordinal);
+            if (open < 0) break;
+            var close = t.IndexOf("</think>", open, StringComparison.Ordinal);
+            if (close < 0) break;
+            t = t.Remove(open, close - open + "</think>".Length);
+        }
+
+        // Strip markdown code fences ```json ... ```
         if (t.StartsWith("```"))
         {
             var firstNewline = t.IndexOf('\n');
@@ -121,6 +139,27 @@ public sealed class LlmWorldDirector : IWorldDirector
             if (t.EndsWith("```"))
                 t = t[..^3];
         }
+        else
+        {
+            // Find the first balanced { ... } object. Reasoning models often
+            // put prose around the JSON; this rescues the actual payload.
+            var start = t.IndexOf('{');
+            if (start >= 0)
+            {
+                var depth = 0;
+                for (var i = start; i < t.Length; i++)
+                {
+                    if (t[i] == '{') depth++;
+                    else if (t[i] == '}') depth--;
+                    if (depth == 0)
+                    {
+                        t = t[start..(i + 1)];
+                        break;
+                    }
+                }
+            }
+        }
+
         return t.Trim();
     }
 }

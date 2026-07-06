@@ -6,6 +6,12 @@ using OpenAI.Chat;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Load user-secrets explicitly. WebApplication.CreateBuilder only adds them
+// automatically in Development, but this is a local dev tool — the secrets
+// live in ~/.microsoft/usersecrets/ (chmod 0600, outside the repo) and must
+// be available regardless of ASPNETCORE_ENVIRONMENT.
+builder.Configuration.AddUserSecrets<Program>();
+
 // --- Configuration: provider switch -----------------------------------------
 // The "Provider" config key selects the LLM backend. Today we ship:
 //   - "MiniMax"   - uses MiniMax (MiniMax M2 / MiniMax-Text-01) via its OpenAI-compatible endpoint
@@ -14,9 +20,12 @@ var builder = WebApplication.CreateBuilder(args);
 var provider = builder.Configuration["Llm:Provider"] ?? "Mock";
 Console.WriteLine($"[startup] LLM provider = {provider}");
 
+// `provider` is case-folded before matching so "MiniMax", "MINIMAX", "minimax"
+// all hit the same arm. Set Llm:Provider in user-secrets (or appsettings) to
+// one of: "MiniMax" or "Mock".
 switch (provider.ToLowerInvariant())
 {
-    case "MiniMax":
+    case "minimax":
         ConfigureMiniMax(builder);
         break;
     case "mock":

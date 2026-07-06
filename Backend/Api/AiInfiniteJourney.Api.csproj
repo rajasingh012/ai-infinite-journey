@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -7,6 +7,7 @@
     <RootNamespace>AiInfiniteJourney.Api</RootNamespace>
     <AssemblyName>AiInfiniteJourney.Api</AssemblyName>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <UserSecretsId>942ed3d3-94c2-4186-bb55-d0a72b72c9b2</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
