@@ -1,0 +1,12 @@
+# ASP.NET Core build outputs
+bin/
+obj/
+out/
+
+# User secrets (created by `dotnet user-secrets init`)
+# The actual file lives outside the repo (~/.microsoft/usersecrets/) and is
+# never committed. Listing the path here is defensive only.
+
+# Local development overrides
+appsettings.Development.json
+appsettings.*.local.json

@@ -6,4 +6,8 @@
     <LangVersion>latest</LangVersion>
     <RootNamespace>AiInfiniteJourney</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Shared\AiInfiniteJourney.Shared.csproj" />
+  </ItemGroup>
 </Project>

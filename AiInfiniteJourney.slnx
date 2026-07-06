@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/Backend/" />
+  <Folder Name="/Backend/Api/">
+    <Project Path="Backend/Api/AiInfiniteJourney.Api.csproj" />
+  </Folder>
+  <Folder Name="/Game/">
+    <Project Path="Game/AIInfiniteJourney.csproj" />
+  </Folder>
+  <Folder Name="/Shared/">
+    <Project Path="Shared/AiInfiniteJourney.Shared.csproj" />
+  </Folder>
+</Solution>
