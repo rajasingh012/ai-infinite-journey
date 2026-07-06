@@ -1,8 +1,9 @@
-[gd_scene load_steps=9 format=3 uid="uid://aij_main_scene_0001"]
+[gd_scene load_steps=10 format=3 uid="uid://aij_main_scene_0001"]
 
 [ext_resource type="Script" path="res://Scripts/RoadChunk.cs" id="1_world"]
 [ext_resource type="Script" path="res://Scripts/PlayerCar.cs" id="2_car"]
 [ext_resource type="Script" path="res://Scripts/ChaseCamera.cs" id="3_cam"]
+[ext_resource type="Script" path="res://Scripts/TreeScatter.cs" id="4_trees"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMat_1"]
 sky_top_color = Color(0.35, 0.55, 0.85, 1)
@@ -33,6 +34,9 @@ shadow_enabled = true
 
 [node name="World" type="Node3D" parent="."]
 script = ExtResource("1_world")
+
+[node name="Trees" type="Node3D" parent="."]
+script = ExtResource("4_trees")
 
 [node name="Car" type="RigidBody3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)

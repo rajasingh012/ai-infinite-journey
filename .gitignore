@@ -54,3 +54,8 @@ local.json
 # User-specific Godot files
 *.translation
 addons/ -/   # keep the folder, ignore its builds
+
+# Local asset source downloads (CC0 zips, kept for re-import but not tracked)
+# Re-download from the upstream URL noted in Game/Assets/README.md
+Assets/Source/
+**/Source/*.zip

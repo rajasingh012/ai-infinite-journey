@@ -14,7 +14,6 @@ config/name="AI Infinite Journey"
 config/description="A small open-world driving game where an LLM acts as a World Director."
 run/main_scene="res://Scenes/Main.tscn"
 config/features=PackedStringArray("4.7", "C#", "Forward Plus")
-config/icon="res://icon.svg"
 
 [display]
 
@@ -24,6 +23,10 @@ window/size/viewport_height=720
 [dotnet]
 
 project/assembly_name="AIInfiniteJourney"
+
+[editor_plugins]
+
+enabled=PackedStringArray()
 
 [input]
 

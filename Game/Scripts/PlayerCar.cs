@@ -3,53 +3,69 @@ using Godot;
 namespace AiInfiniteJourney;
 
 /// <summary>
-/// Builds a simple car visual + collision hull as children of the RigidBody3D root.
-/// Kept separate from CarController so the controller stays focused on physics
-/// and this stays focused on shape/material.
+/// Player car visual + collision. Loads the Kenney sedan GLB mesh and applies
+/// its colormap texture. Wraps a CarController (the physics body).
 /// </summary>
 [GlobalClass]
 public partial class PlayerCar : CarController
 {
-    [Export] public Vector3 BodySize = new(1.8f, 0.6f, 4.0f); // Half-extents ×2, X=width Y=height Z=length
-    [Export] public Color BodyColor = new(0.85f, 0.15f, 0.15f);
+    [Export] public string CarMeshPath { get; set; } = "res://Assets/Models/Cars/sedan.glb";
+    [Export] public string CarTexturePath { get; set; } = "res://Assets/Textures/car-colormap.png";
+    [Export] public Vector3 CollisionSize { get; set; } = new(1.8f, 0.8f, 4.0f);
 
     public override void _Ready()
     {
         base._Ready();
 
-        // Collision hull.
+        // Collision hull (sized to roughly match the Kenney sedan).
         var collision = new CollisionShape3D
         {
-            Shape = new BoxShape3D { Size = BodySize },
+            Shape = new BoxShape3D { Size = CollisionSize },
         };
         AddChild(collision);
 
-        // Body mesh.
-        var body = new MeshInstance3D
+        // Load the sedan GLB as a child scene.
+        var carScene = GD.Load<PackedScene>(CarMeshPath);
+        if (carScene != null)
         {
-            Mesh = new BoxMesh { Size = BodySize },
-            MaterialOverride = new StandardMaterial3D
+            var instance = carScene.Instantiate<Node3D>();
+            instance.Name = "SedanMesh";
+            // Kenney cars are roughly 1 unit wide × 4 long. Apply texture via StandardMaterial3D.
+            ApplyTextureToAllMaterials(instance, CarTexturePath);
+            AddChild(instance);
+        }
+        else
+        {
+            GD.PushWarning($"PlayerCar: failed to load car mesh at {CarMeshPath}, falling back to box");
+            AddChild(new MeshInstance3D
             {
-                AlbedoColor = BodyColor,
-                Metallic = 0.4f,
-                Roughness = 0.4f,
-            },
-        };
-        AddChild(body);
+                Mesh = new BoxMesh { Size = CollisionSize },
+                MaterialOverride = new StandardMaterial3D { AlbedoColor = new Color(0.85f, 0.15f, 0.15f) },
+            });
+        }
+    }
 
-        // Cabin (smaller box on top, shifted up and slightly back).
-        var cabinSize = BodySize * new Vector3(0.8f, 0.5f, 0.5f);
-        var cabin = new MeshInstance3D
+    private static void ApplyTextureToAllMaterials(Node node, string texturePath)
+    {
+        var tex = GD.Load<Texture2D>(texturePath);
+        if (tex == null) return;
+
+        foreach (var child in node.GetChildren())
         {
-            Mesh = new BoxMesh { Size = cabinSize },
-            MaterialOverride = new StandardMaterial3D
+            if (child is MeshInstance3D mi)
             {
-                AlbedoColor = BodyColor.Darkened(0.2f),
-                Metallic = 0.6f,
-                Roughness = 0.3f,
-            },
-            Position = new Vector3(0.0f, BodySize.Y * 0.6f, -BodySize.Z * 0.05f),
-        };
-        AddChild(cabin);
+                // Replace the material with a StandardMaterial3D using the colormap.
+                // This works for Kenney assets that ship without embedded textures.
+                var mat = new StandardMaterial3D
+                {
+                    AlbedoTexture = tex,
+                    Metallic = 0.4f,
+                    Roughness = 0.5f,
+                };
+                mi.MaterialOverride = mat;
+            }
+            if (child.GetChildCount() > 0)
+                ApplyTextureToAllMaterials(child, texturePath);
+        }
     }
 }
