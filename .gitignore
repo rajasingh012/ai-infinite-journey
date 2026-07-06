@@ -36,10 +36,14 @@ Thumbs.db
 *.log
 
 # Local secrets / config
-*.local.json
 appsettings.Development.json
+appsettings.*.local.json
+secrets.json
+*.local
+*.local.json
 .env
 .env.*
+local.json
 
 # SQLite
 *.db
