@@ -1,0 +1,52 @@
+# Build outputs
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+*.dll
+*.exe
+*.pdb
+*.user
+*.suo
+
+# Godot 4
+.godot/
+.import/
+export.cfg
+export_presets.cfg
+*.translation
+
+# Mono / .NET
+.mono/
+data_*/mono_crash.*.json
+.vs/
+bin/
+obj/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local secrets / config
+*.local.json
+appsettings.Development.json
+.env
+.env.*
+
+# SQLite
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# User-specific Godot files
+*.translation
+addons/ -/   # keep the folder, ignore its builds
