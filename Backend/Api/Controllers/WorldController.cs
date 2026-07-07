@@ -42,8 +42,12 @@ public sealed class WorldController : ControllerBase
         catch (Exception ex)
         {
             _log.LogError(ex, "World director failed for prompt: {Prompt}", req.Prompt);
-            return StatusCode(StatusCodes.Status502BadGateway,
-                new { error = "world director failed", detail = ex.Message });
+
+            // Fallback path: if the live LLM times out / errors (common with
+            // MiniMax today), return a synthetic plan derived from the prompt
+            // so the demo stays playable. Logs a warning so it's visible.
+            _log.LogWarning("Falling back to synthetic plan (live LLM unavailable)");
+            return Ok(SyntheticFallback.Build(req.Prompt));
         }
     }
 

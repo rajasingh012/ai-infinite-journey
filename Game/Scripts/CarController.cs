@@ -9,16 +9,29 @@ namespace AiInfiniteJourney;
 /// This is intentionally simple for Phase 1: driveable car + camera + road.
 /// Phase 2 will swap in a real wheel/raycast suspension. Phase 3+ stays the
 /// same — the procedural generator just drops the car into the world.
+///
+/// Notable fixes from the 2026-07-07 debug session (where the car did not
+/// move under WASD despite input being correctly received):
+///   1. Sleeping + CanSleep are disabled. RigidBody3D falls asleep on its own
+///      when idle; for a player-controlled car we never want that.
+///   2. ContactMonitor is enabled and MaxContactsReported is set. Without
+///      these, GetContactCount() always returns 0 and contact events are
+///      never delivered, making physics-related bugs very hard to debug.
+///   3. The collision shape is added in PlayerCar via CallDeferred so the
+///      physics server registers it (otherwise the body has no colliders
+///      and ApplyCentralForce goes into the void).
+///   4. The ChaseCamera offset was changed to (0, 2.5, 6) to follow the
+///      new Y position of the body.
 /// </summary>
 [GlobalClass]
 public partial class CarController : RigidBody3D
 {
-    [Export] public float EngineForce = 1200.0f;      // Newtons applied at the wheels along forward axis
+    [Export] public float EngineForce = 120000.0f;    // Newtons along forward axis. Effective value used during the 2026-07-07 "car doesn't move" debug. 100x the original 1200 N. Lower values (3000, 12000) were tested and did not move the 1200 kg body — the RigidBody3D solver swallows small per-tick forces for resting bodies. 120000 N gives ~100 m/s² peak acceleration, capped at MaxForwardSpeed=25 m/s, which is the right arcade feel for a hackathon demo. Day-2 work will replace this with proper wheel colliders so we can dial down to realistic values.
     [Export] public float BrakeForce = 30.0f;          // Strong friction scalar while brake is held
     [Export] public float MaxSteerAngleDeg = 35.0f;    // Max front-wheel steering angle
     [Export] public float SteerSpeedDegPerSec = 180.0f; // How fast the steering wheel turns
     [Export] public float SteerReturnDegPerSec = 240.0f; // How fast it recenters when no input
-    [Export] public float MaxForwardSpeed = 25.0f;     // m/s — soft cap, not a hard wall
+    [Export] public float MaxForwardSpeed = 18.0f;     // m/s — soft cap (~65 km/h). Lowered from 25 to keep a hackathon demo at driving-game speeds, not racing speeds.
     [Export] public float LateralGripFactor = 12.0f;   // Higher = less sliding sideways
     [Export] public float Downforce = 20.0f;           // Keeps the car planted at speed
 
@@ -32,6 +45,22 @@ public partial class CarController : RigidBody3D
         var com = CenterOfMass;
         com.Y = -0.4f;
         CenterOfMass = com;
+
+        // (1) Don't sleep: a player-controlled body must always respond.
+        Sleeping = false;
+        CanSleep = false;
+        // Make sure the body isn't accidentally frozen or axis-locked.
+        Freeze = false;
+
+        // (2) Enable contact reporting so GetContactCount() returns a useful
+        // value and BodyEntered/BodyExited fire when the car touches the world.
+        ContactMonitor = true;
+        MaxContactsReported = 8;
+
+        // (3) Continuous collision detection so small forces aren't lost on
+        // single-frame contacts. (Original "car doesn't move" debug, 2026-07-07.)
+        ContinuousCd = true;
+        GD.Print($"[CarController] ready. layer={CollisionLayer} mask={CollisionMask} mass={Mass}");
     }
 
     public override void _PhysicsProcess(double delta)

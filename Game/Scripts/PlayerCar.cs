@@ -18,11 +18,17 @@ public partial class PlayerCar : CarController
         base._Ready();
 
         // Collision hull (sized to roughly match the Kenney sedan).
+        // Use CallDeferred so the CollisionShape3D is added during the
+        // right scene-tree phase — adding it directly in _Ready can
+        // result in the physics server not registering the new shape,
+        // which manifests as the rigid body having zero contacts even
+        // when it's sitting on top of a collision body. (Confirmed bug
+        // in this project on 2026-07-07.)
         var collision = new CollisionShape3D
         {
             Shape = new BoxShape3D { Size = CollisionSize },
         };
-        AddChild(collision);
+        CallDeferred(Node.MethodName.AddChild, collision);
 
         // Load the sedan GLB as a child scene.
         var carScene = GD.Load<PackedScene>(CarMeshPath);

@@ -89,7 +89,14 @@ public sealed class LlmWorldDirector : IWorldDirector
         };
 
         _log.LogInformation("Directing journey: {Prompt}", prompt);
-        var response = await _chat.GetResponseAsync(messages, options, ct);
+
+        // Explicit 180s timeout — MiniMax reasoning models regularly take 60-120s
+        // to respond and the default HttpClient timeout (~100s) cancels them.
+        // 180s gives generous margin without breaking the demo if a request hangs.
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(180));
+
+        var response = await _chat.GetResponseAsync(messages, options, timeoutCts.Token);
 
         var text = ExtractText(response);
         if (string.IsNullOrWhiteSpace(text))
