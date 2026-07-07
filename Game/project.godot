@@ -24,6 +24,10 @@ window/size/viewport_height=720
 
 project/assembly_name="AIInfiniteJourney"
 
+[autoload]
+
+JourneyState="*res://Scripts/JourneyState.cs"
+
 [editor_plugins]
 
 enabled=PackedStringArray()
