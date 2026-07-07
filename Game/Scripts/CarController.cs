@@ -33,7 +33,7 @@ public partial class CarController : RigidBody3D
     [Export] public float SteerReturnDegPerSec = 240.0f; // How fast it recenters when no input
     [Export] public float MaxForwardSpeed = 18.0f;     // m/s — soft cap (~65 km/h). Lowered from 25 to keep a hackathon demo at driving-game speeds, not racing speeds.
     [Export] public float LateralGripFactor = 12.0f;   // Higher = less sliding sideways
-    [Export] public float Downforce = 20.0f;           // Keeps the car planted at speed
+    [Export] public float Downforce = 20.0f;           // Speed-scaled downforce multiplier
 
     private float _steerAngleDeg;
 
@@ -114,6 +114,11 @@ public partial class CarController : RigidBody3D
         ApplyCentralImpulse(gripImpulse);
 
         // --- Downforce to prevent the car from feeling floaty ---
-        ApplyCentralForce(-GlobalTransform.Basis.Y * Downforce * Mathf.Abs(fwdSpeed));
+        // Base downforce keeps the car planted at low speeds (mass * 5 ≈ 0.5G
+        // of artificial gravity on top of Godot's real gravity). Speed-scaled
+        // downforce grows with velocity so the car doesn't launch on hills.
+        var baseDownforce = Mass * 5.0f;
+        var speedDownforce = Downforce * Mathf.Abs(fwdSpeed);
+        ApplyCentralForce(-GlobalTransform.Basis.Y * (baseDownforce + speedDownforce));
     }
 }

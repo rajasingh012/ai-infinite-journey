@@ -13,14 +13,12 @@ namespace AiInfiniteJourney;
 public partial class RoadManager : Node3D
 {
     [Export] public NodePath? CarPath { get; set; }
-    [Export] public NodePath? GroundPath { get; set; }
     [Export] public int LookAhead = 6;   // strips ahead of the car
     [Export] public int LookBehind = 4;  // strips behind the car
     [Export] public float StripLength = 50.0f;
 
     private readonly List<RoadStrip> _strips = new();
     private RigidBody3D? _car;
-    private RoadChunk? _ground;
     private int _centerIndex; // chunk index of the strip currently under the car
 
     public override void _Ready()
@@ -29,11 +27,6 @@ public partial class RoadManager : Node3D
             _car = GetNodeOrNull<RigidBody3D>(CarPath);
         if (_car is null)
             _car = GetNodeOrNull<RigidBody3D>("../Car");
-
-        if (GroundPath is not null)
-            _ground = GetNodeOrNull<RoadChunk>(GroundPath);
-        if (_ground is null)
-            _ground = GetNodeOrNull<RoadChunk>("../World");
 
         // Spawn initial window centred on the car start position (Z=0).
         _centerIndex = 0;
@@ -96,10 +89,6 @@ public partial class RoadManager : Node3D
 
         // Apply theme tint to any strips that don't have it yet.
         ApplyTheme();
-
-        // Tint the ground, too.
-        var groundColor = ThemeToGroundColor(JourneyState.Instance.Plan?.Theme);
-        _ground?.SetGroundTint(groundColor);
     }
 
     /// <summary>
@@ -124,16 +113,5 @@ public partial class RoadManager : Node3D
         "countryside" => new Color(0.30f, 0.28f, 0.24f), // warm brown
         "urban" => new Color(0.18f, 0.18f, 0.20f),      // dark gray
         _ => new Color(0.20f, 0.20f, 0.22f),             // default asphalt
-    };
-
-    private static Color ThemeToGroundColor(string? theme) => theme?.ToLowerInvariant() switch
-    {
-        "mountain" => new Color(0.22f, 0.28f, 0.22f),   // gray-green grass
-        "desert" => new Color(0.40f, 0.35f, 0.20f),     // tan sand
-        "coastal" => new Color(0.30f, 0.28f, 0.20f),    // light brown
-        "forest" => new Color(0.12f, 0.28f, 0.12f),     // deep green
-        "countryside" => new Color(0.25f, 0.38f, 0.18f), // bright green
-        "urban" => new Color(0.22f, 0.22f, 0.22f),      // brown-gray
-        _ => new Color(0.18f, 0.32f, 0.16f),             // default grass
     };
 }
