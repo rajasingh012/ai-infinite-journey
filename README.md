@@ -36,17 +36,8 @@ The LLM *directs* — it outputs JSON. The engine *builds* — terrain, road, an
 Game/       Godot 4 C# project (scenes, scripts, assets)
 Backend/    ASP.NET Core Web API
 Shared/     Shared models (JourneyPlan, DeliveryContract)
+PROGRESS.md Sprint plan, task list, known bugs
 ```
-
-## Hackathon sprint (revised July 7–11)
-
-| Day | Deliverable |
-|-----|-------------|
-| Day 1 (Tue) | Backend live, HTTP client, car moves |
-| Day 2 (Wed) | Terrain heightmap + spline road system — hills, valleys, road chunks follow curve, bridge/tunnel detection |
-| Day 3 (Thu) | Object placement (trees, buildings with collision), theme dressing from LLM |
-| Day 4 (Fri) | Polish, end-to-end test, demo video |
-| Day 5 (Sat) | README, submission, **ship by 21:00 IST** |
 
 ## Free assets used
 
@@ -54,3 +45,5 @@ Shared/     Shared models (JourneyPlan, DeliveryContract)
 - https://quaternius.com
 - https://poly.pizza
 - https://opengameart.org
+
+See [PROGRESS.md](./PROGRESS.md) for the full sprint plan and task list.
