@@ -31,7 +31,14 @@ public sealed class LlmWorldDirector : IWorldDirector
             "hazards": [],
             "weather": "Clear",
             "time_of_day": "Midday",
-            "recommended_chunks": 8
+            "recommended_chunks": 8,
+            "contract": {
+              "pickup_label": "Warehouse",
+              "dropoff_label": "Mountain Lodge",
+              "cargo": "Medical Supplies",
+              "payout": 500,
+              "narrative": "Storm warning — drive carefully."
+            }
           }
 
         Rules:
@@ -39,6 +46,14 @@ public sealed class LlmWorldDirector : IWorldDirector
         - hazards is a list, can be empty
         - weather and time_of_day are single short words
         - recommended_chunks is an integer between 4 and 12
+        - contract.pickup_label and contract.dropoff_label are short location
+          names (1-3 words) that fit the journey theme
+        - contract.cargo is a short cargo name (1-3 words), e.g. "Medical
+          Supplies", "Spare Parts", "Fresh Produce"
+        - contract.payout is an integer between 100 and 2000, scaled to the
+          danger of the journey (stormy night = higher, clear day = lower)
+        - contract.narrative is one short sentence shown to the player as
+          flavour text (can be empty)
         - output ONLY the JSON, no markdown fences, no commentary
         """;
 

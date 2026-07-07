@@ -57,6 +57,14 @@ public sealed class MockChatClient : IChatClient
         Weather = "Clear",
         TimeOfDay = "Midday",
         RecommendedChunks = 8,
+        Contract = new DeliveryContract
+        {
+            PickupLabel = "Depot",
+            DropoffLabel = "Lodge",
+            Cargo = "Supplies",
+            Payout = 500,
+            Narrative = "Drive safe.",
+        },
     };
 
     private static string DeriveTheme(string prompt)
