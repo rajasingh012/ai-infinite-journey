@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3 uid="uid://aij_main_scene_0001"]
+[gd_scene load_steps=13 format=3 uid="uid://aij_main_scene_0001"]
 
 [ext_resource type="Script" path="res://Scripts/RoadChunk.cs" id="1_world"]
 [ext_resource type="Script" path="res://Scripts/PlayerCar.cs" id="2_car"]
@@ -6,6 +6,7 @@
 [ext_resource type="Script" path="res://Scripts/TreeScatter.cs" id="4_trees"]
 [ext_resource type="Script" path="res://Scripts/JourneyApi.cs" id="5_api"]
 [ext_resource type="Script" path="res://Scripts/TitleScreen.cs" id="6_title"]
+[ext_resource type="Script" path="res://Scripts/RoadManager.cs" id="7_roadmgr"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMat_1"]
 sky_top_color = Color(0.35, 0.55, 0.85, 1)
@@ -60,3 +61,8 @@ script = ExtResource("5_api")
 [node name="TitleScreen" type="Node" parent="."]
 script = ExtResource("6_title")
 JourneyApiPath = NodePath("../JourneyApi")
+
+[node name="RoadManager" type="Node3D" parent="."]
+script = ExtResource("7_roadmgr")
+CarPath = NodePath("../Car")
+GroundPath = NodePath("../World")

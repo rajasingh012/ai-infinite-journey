@@ -17,7 +17,7 @@ public partial class TreeScatter : Node3D
         "res://Assets/Models/Trees/tree_fat.fbx",
         "res://Assets/Models/Trees/tree_cone.fbx",
     };
-    [Export] public float RoadLength { get; set; } = 200.0f;
+    [Export] public float RoadLength { get; set; } = 500.0f;
     [Export] public float RoadWidth { get; set; } = 8.0f;
     [Export] public float MinOffset { get; set; } = 6.0f;   // min distance from road centerline
     [Export] public float MaxOffset { get; set; } = 35.0f;  // max distance from road centerline
