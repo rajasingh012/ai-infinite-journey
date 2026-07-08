@@ -56,36 +56,16 @@ public partial class RoadChunk : Node3D
         var halfX = ChunkSize.X;
         var halfZ = ChunkSize.Y;
 
-        // Generate heightmap using layered sine waves. The chunk's world
-        // position seeds the phase so adjacent chunks blend smoothly.
-        var seedX = GlobalPosition.X;
-        var seedZ = GlobalPosition.Z;
-        var rng = new RandomNumberGenerator();
-        rng.Seed = (ulong)(Mathf.Abs(seedX * 1000 + seedZ * 7) % 10000000 + 1);
-
-        // Random terrain parameters per chunk (seeded by position, so same
-        // chunk always produces the same terrain).
-        var a0 = rng.RandfRange(0.5f, 2.0f);
-        var a1 = rng.RandfRange(0.3f, 1.5f);
-        var a2 = rng.RandfRange(0.1f, 0.6f);
-        var f0x = rng.RandfRange(0.03f, 0.08f);
-        var f0z = rng.RandfRange(0.03f, 0.08f);
-        var f1x = rng.RandfRange(0.10f, 0.20f);
-        var f1z = rng.RandfRange(0.10f, 0.20f);
-        var phase0 = rng.RandfRange(0, Mathf.Tau);
-        var phase1 = rng.RandfRange(0, Mathf.Tau);
-
-        var maxH = 0.0f;
+        // Sample the shared TerrainHeight function in world space so terrain
+        // and road are perfectly aligned. No per-chunk random seeds needed.
         for (var i = 0; i < Resolution; i++)
         for (var j = 0; j < Resolution; j++)
         {
-            var x = -halfX + i * _cellSize;
-            var z = -halfZ + j * _cellSize;
-            var h = a0 * Mathf.Sin(f0x * x + f0z * z + phase0)
-                  + a1 * Mathf.Sin(f1x * x + f1z * z + phase1)
-                  + a2 * Mathf.Cos(f1z * x - f1x * z + phase1 * 0.5f);
-            _heights[i, j] = h;
-            if (h > maxH) maxH = h;
+            var localX = -halfX + i * _cellSize;
+            var localZ = -halfZ + j * _cellSize;
+            _heights[i, j] = TerrainHeight.Sample(
+                GlobalPosition.X + localX,
+                GlobalPosition.Z + localZ);
         }
 
         // Build visual mesh.

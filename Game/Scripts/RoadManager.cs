@@ -4,22 +4,22 @@ using System.Collections.Generic;
 namespace AiInfiniteJourney;
 
 /// <summary>
-/// Spawns and despawns RoadStrip instances as the car drives, creating an
-/// endless road. Maintains a sliding window of strips centered on the car's
-/// Z position. Also applies theme-based colour tinting from the current
-/// JourneyPlan so each journey looks different.
+/// Spawns and despawns SplineRoad segments as the car drives, creating an
+/// endless curved road that follows the terrain. Maintains a sliding window
+/// of segments centered on the car's Z position. Applies theme-based colour
+/// tinting from the current JourneyPlan.
 /// </summary>
 [GlobalClass]
 public partial class RoadManager : Node3D
 {
     [Export] public NodePath? CarPath { get; set; }
-    [Export] public int LookAhead = 6;   // strips ahead of the car
-    [Export] public int LookBehind = 4;  // strips behind the car
+    [Export] public int LookAhead = 6;
+    [Export] public int LookBehind = 4;
     [Export] public float StripLength = 50.0f;
 
-    private readonly List<RoadStrip> _strips = new();
+    private readonly List<SplineRoad> _segments = new();
     private RigidBody3D? _car;
-    private int _centerIndex; // chunk index of the strip currently under the car
+    private int _centerIndex;
 
     public override void _Ready()
     {
@@ -28,11 +28,9 @@ public partial class RoadManager : Node3D
         if (_car is null)
             _car = GetNodeOrNull<RigidBody3D>("../Car");
 
-        // Spawn initial window centred on the car start position (Z=0).
         _centerIndex = 0;
         RefreshWindow();
 
-        // Listen for journey plan changes so we can re-tint the road.
         JourneyState.Instance.Connect(nameof(JourneyState.PlanChanged),
             Callable.From(() => ApplyTheme()));
         ApplyTheme();
@@ -54,7 +52,6 @@ public partial class RoadManager : Node3D
 
     private void RefreshWindow()
     {
-        // Determine which chunk indices should exist.
         var first = _centerIndex - LookBehind;
         var last = _centerIndex + LookAhead;
 
@@ -62,56 +59,52 @@ public partial class RoadManager : Node3D
         for (var i = first; i <= last; i++)
             wanted.Add(i);
 
-        // Remove strips outside the window.
-        for (var i = _strips.Count - 1; i >= 0; i--)
+        // Remove segments outside the window.
+        for (var i = _segments.Count - 1; i >= 0; i--)
         {
-            var strip = _strips[i];
-            var idx = (int)(strip.Position.Z / StripLength);
+            var seg = _segments[i];
+            var idx = Mathf.RoundToInt(seg.Position.Z / StripLength);
             if (!wanted.Contains(idx))
             {
-                strip.QueueFree();
-                _strips.RemoveAt(i);
+                seg.QueueFree();
+                _segments.RemoveAt(i);
             }
         }
 
-        // Add strips that are missing.
+        // Add missing segments.
         var existing = new HashSet<int>();
-        foreach (var s in _strips)
-            existing.Add((int)(s.Position.Z / StripLength));
+        foreach (var s in _segments)
+            existing.Add(Mathf.RoundToInt(s.Position.Z / StripLength));
 
         for (var i = first; i <= last; i++)
         {
             if (existing.Contains(i)) continue;
-            var strip = new RoadStrip { Position = new Vector3(0, 0, i * StripLength) };
-            AddChild(strip);
-            _strips.Add(strip);
+            var seg = new SplineRoad
+            {
+                Position = new Vector3(0, 0, i * StripLength),
+            };
+            AddChild(seg);
+            _segments.Add(seg);
         }
 
-        // Apply theme tint to any strips that don't have it yet.
         ApplyTheme();
     }
 
-    /// <summary>
-    /// Re-apply theme colour to all current strips. Called when a new
-    /// JourneyPlan arrives.
-    /// </summary>
     private void ApplyTheme()
     {
         var roadColor = ThemeToRoadColor(JourneyState.Instance.Plan?.Theme);
-        foreach (var strip in _strips)
-            strip.SetColor(roadColor);
+        foreach (var seg in _segments)
+            seg.SetColor(roadColor);
     }
-
-    // --- Theme colour lookup ------------------------------------------------
 
     private static Color ThemeToRoadColor(string? theme) => theme?.ToLowerInvariant() switch
     {
-        "mountain" => new Color(0.25f, 0.27f, 0.30f),   // gray-blue asphalt
-        "desert" => new Color(0.35f, 0.30f, 0.22f),     // sandy
-        "coastal" => new Color(0.28f, 0.28f, 0.30f),    // warm gray
-        "forest" => new Color(0.22f, 0.26f, 0.22f),     // dark green
-        "countryside" => new Color(0.30f, 0.28f, 0.24f), // warm brown
-        "urban" => new Color(0.18f, 0.18f, 0.20f),      // dark gray
-        _ => new Color(0.20f, 0.20f, 0.22f),             // default asphalt
+        "mountain" => new Color(0.25f, 0.27f, 0.30f),
+        "desert" => new Color(0.35f, 0.30f, 0.22f),
+        "coastal" => new Color(0.28f, 0.28f, 0.30f),
+        "forest" => new Color(0.22f, 0.26f, 0.22f),
+        "countryside" => new Color(0.30f, 0.28f, 0.24f),
+        "urban" => new Color(0.18f, 0.18f, 0.20f),
+        _ => new Color(0.20f, 0.20f, 0.22f),
     };
 }

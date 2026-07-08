@@ -58,7 +58,9 @@ Tracked tasks, decisions, and known issues for the AI Infinite Journey hackathon
 ### Day 3 — Thu Jul 9
 - **Box buildings** — houses (box+triangle roof), factories (tall boxes+chimney),
   placed along road with collision
-- **Option B ground** — terrain collision below road level; drive off road → drop
+- **Crash physics** — all objects (trees, buildings, rocks) get collision shapes;
+  car crashes into them and reacts physically. Terrain is solid ground everywhere —
+  drive off road onto grass, no falling through.
 - **Endless object spawning** — objects spawn/despawn with terrain chunks
 
 ### Day 4 — Fri Jul 10

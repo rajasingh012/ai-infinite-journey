@@ -87,9 +87,11 @@ Tunnel detection: where terrain height > (spline Y + car_height) → road is ins
 - Keep-out zone around road (6m from centerline)
 - Collision shapes on all objects so the car crashes into them
 
-### 4.4 Ground collision (Option B)
+### 4.4 Ground collision
 
-The ground collision plane is at Y=-0.3 (below the road surface at Y=0). The road collision is at Y=0. Driving off the road drops the car 0.3 units onto the terrain. The car can climb back onto the road if the terrain is close enough to road height. In deep valleys, the car falls further and must stay on the road.
+The terrain IS the ground. Every terrain chunk has `HeightMapShape3D` collision, so the car drives on solid ground everywhere — road or no road. Driving off the road means you are now on grass/dirt terrain. You do not fall through it, you do not drop into a void. The car simply transitions from the road surface to the terrain surface.
+
+Objects (trees, buildings, rocks) are solid obstacles with their own collision shapes. Driving into them = crash, the car reacts physically. The car cannot clip through any solid surface — terrain, road, or obstacle.
 
 ## 5. Sprint plan (revised)
 

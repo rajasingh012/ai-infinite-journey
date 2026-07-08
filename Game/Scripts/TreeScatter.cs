@@ -55,6 +55,18 @@ public partial class TreeScatter : Node3D
             // Apply a simple green material to all meshes in the tree.
             ApplyRandomMaterial(tree, materials[rng.RandiRange(0, materials.Length - 1)]);
 
+            // Add a trunk collision body so the car crashes into trees
+            // instead of driving through them. Cylinder shape roughly
+            // matches a tree trunk; tall enough to catch the car at speed.
+            var trunkCol = new StaticBody3D { Name = $"TreeCol{i}" };
+            trunkCol.AddChild(new CollisionShape3D
+            {
+                Shape = new CylinderShape3D { Radius = 0.6f, Height = 4.0f },
+                Position = new Vector3(0, 2.0f, 0),
+            });
+            trunkCol.Position = tree.Position;
+            AddChild(trunkCol);
+
             AddChild(tree);
         }
     }
