@@ -137,14 +137,10 @@ public partial class SplineRoad : Node3D
         };
         AddChild(new MeshInstance3D { Mesh = mesh, MaterialOverride = _roadMat });
 
-        // Collision: trimesh shape from the road mesh.
-        var shape = mesh.CreateTrimeshShape();
-        if (shape is not null)
-        {
-            var body = new StaticBody3D { Name = "RoadCollision" };
-            body.AddChild(new CollisionShape3D { Shape = shape });
-            AddChild(body);
-        }
+        // No road collision — the terrain HeightMapShape3D provides solid
+        // ground everywhere. Adding a trimesh here caused RigidBody3D jitter
+        // (internal-edge bouncing) because the car rests on overlapping
+        // trimesh + heightmap surfaces. The road mesh is purely visual.
     }
 
     // ── Center-line dashes ────────────────────────────────────────────

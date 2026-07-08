@@ -20,6 +20,8 @@ public partial class TerrainManager : Node3D
 
     private readonly Dictionary<(int z, int x), RoadChunk> _tiles = new();
     private RigidBody3D? _car;
+    private int _cachedCenterZ = int.MinValue;
+    private int _cachedCenterX = int.MinValue;
 
     public override void _Ready()
     {
@@ -40,6 +42,12 @@ public partial class TerrainManager : Node3D
         var cz = (int)(carPos.Z / TileSize);
         var cx = (int)(carPos.X / TileSize);
 
+        // Only rebuild tile set when the car crosses a tile boundary.
+        if (cz == _cachedCenterZ && cx == _cachedCenterX) return;
+
+        _cachedCenterZ = cz;
+        _cachedCenterX = cx;
+        GD.Print($"[TerrainManager] tile center changed → z={cz} x={cx}");
         RefreshTiles(cz, cx);
     }
 

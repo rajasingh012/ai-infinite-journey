@@ -30,6 +30,15 @@ public partial class PlayerCar : CarController
         };
         CallDeferred(Node.MethodName.AddChild, collision);
 
+        // Also set a PhysicsMaterial on the body to reduce terrain friction
+        // at contact points — default friction (1.0) combined with downforce
+        // can prevent the car from accelerating from standstill.
+        PhysicsMaterialOverride = new PhysicsMaterial
+        {
+            Friction = 0.3f,
+            Bounce = 0.0f,
+        };
+
         // Load the sedan GLB as a child scene.
         var carScene = GD.Load<PackedScene>(CarMeshPath);
         if (carScene != null)

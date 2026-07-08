@@ -32,8 +32,9 @@ public partial class CarController : RigidBody3D
     [Export] public float SteerSpeedDegPerSec = 180.0f; // How fast the steering wheel turns
     [Export] public float SteerReturnDegPerSec = 240.0f; // How fast it recenters when no input
     [Export] public float MaxForwardSpeed = 18.0f;     // m/s — soft cap (~65 km/h). Lowered from 25 to keep a hackathon demo at driving-game speeds, not racing speeds.
-    [Export] public float LateralGripFactor = 12.0f;   // Higher = less sliding sideways
+    [Export] public float LateralGripFactor = 3.0f;   // Lowered from 12: high grip impulse oscillated with terrain jitter
     [Export] public float Downforce = 20.0f;           // Speed-scaled downforce multiplier
+    [Export] public float AntiBounceForce = 50.0f;     // Damps vertical velocity on contact to prevent earthquake jitter
 
     private float _steerAngleDeg;
 
@@ -67,6 +68,19 @@ public partial class CarController : RigidBody3D
     {
         var dt = (float)delta;
 
+        // --- Anti-bounce: kill vertical velocity when grounded ---
+        // Prevents the "earthquake" effect where RigidBody3D bounces on
+        // terrain contacts. Only applies when the car has ground contact.
+        var contactCount = GetContactCount();
+        if (contactCount > 0 && LinearVelocity.Y > -0.1f)
+        {
+            var vY = LinearVelocity.Y;
+            if (Mathf.Abs(vY) > 0.5f)
+            {
+                LinearVelocity = new Vector3(LinearVelocity.X, vY * 0.3f, LinearVelocity.Z);
+            }
+        }
+
         // --- Steering ---
         var steerInput = Input.GetActionStrength("right") - Input.GetActionStrength("left");
         var maxSteer = MaxSteerAngleDeg;
@@ -86,11 +100,42 @@ public partial class CarController : RigidBody3D
         var forwardDir = -GlobalTransform.Basis.Z;
         var fwdSpeed = LinearVelocity.Dot(forwardDir);
 
+        // At low speed (< 1 m/s), the physics solver can lose force-based
+        // acceleration because high downforce + terrain friction dominates
+        // contact resolution. Use direct velocity override on the forward
+        // axis to "kick start" the car. Above 1 m/s, use ApplyCentralForce
+        // for standard physics.
         if (throttle > 0.01f && fwdSpeed < MaxForwardSpeed)
-            ApplyCentralForce(forwardDir * EngineForce * throttle);
+        {
+            if (fwdSpeed < 1.0f)
+            {
+                // Velocity-based low-speed boost: directly accelerate forward
+                // axis so the car can overcome terrain friction.
+                var targetFwdSpeed = Mathf.Min(fwdSpeed + EngineForce * throttle * dt / Mass, MaxForwardSpeed);
+                var bodyVel = LinearVelocity;
+                bodyVel += forwardDir * (targetFwdSpeed - fwdSpeed);
+                LinearVelocity = bodyVel;
+            }
+            else
+            {
+                ApplyCentralForce(forwardDir * EngineForce * throttle);
+            }
+        }
 
         if (reverse > 0.01f && fwdSpeed > -MaxForwardSpeed * 0.5f)
-            ApplyCentralForce(-forwardDir * EngineForce * 0.6f * reverse);
+        {
+            if (fwdSpeed > -1.0f)
+            {
+                var targetRevSpeed = Mathf.Max(fwdSpeed - EngineForce * 0.6f * reverse * dt / Mass, -MaxForwardSpeed * 0.5f);
+                var bodyVel = LinearVelocity;
+                bodyVel += (-forwardDir) * (fwdSpeed - targetRevSpeed);
+                LinearVelocity = bodyVel;
+            }
+            else
+            {
+                ApplyCentralForce(-forwardDir * EngineForce * 0.6f * reverse);
+            }
+        }
 
         if (braking)
         {
@@ -105,7 +150,10 @@ public partial class CarController : RigidBody3D
         var speedFactor = Mathf.Clamp(fwdSpeed / 5.0f, 0.0f, 1.0f);
         var yawTorque = Mathf.DegToRad(_steerAngleDeg) * speedFactor * 1500.0f;
         // Yaw around local up axis (Y in Godot).
-        ApplyTorque(GlobalTransform.Basis.Y * yawTorque);
+        // Negated: positive Y torque rotates counter-clockwise from above
+        // (toward -X / left in Godot). Without the negation, pressing right
+        // turns the car left — confirmed inverted steering bug.
+        ApplyTorque(GlobalTransform.Basis.Y * -yawTorque);
 
         // --- Lateral grip: kill sideways velocity component ---
         var vel = LinearVelocity;
@@ -114,11 +162,22 @@ public partial class CarController : RigidBody3D
         ApplyCentralImpulse(gripImpulse);
 
         // --- Downforce to prevent the car from feeling floaty ---
-        // Base downforce keeps the car planted at low speeds (mass * 5 ≈ 0.5G
+        // Base downforce keeps the car planted at low speeds (mass * 0.5 ≈ 0.05G
         // of artificial gravity on top of Godot's real gravity). Speed-scaled
         // downforce grows with velocity so the car doesn't launch on hills.
-        var baseDownforce = Mass * 5.0f;
+        var baseDownforce = Mass * 0.5f;
         var speedDownforce = Downforce * Mathf.Abs(fwdSpeed);
         ApplyCentralForce(-GlobalTransform.Basis.Y * (baseDownforce + speedDownforce));
+
+        // --- Debug: log every 60 physics frames (~1/sec) ---
+        _debugLogCounter++;
+        if (_debugLogCounter >= 60)
+        {
+            _debugLogCounter = 0;
+            GD.Print($"[Car] pos={GlobalPosition:F1} vel={LinearVelocity:F1} " +
+                     $"fwd={fwdSpeed:F1} steer={_steerAngleDeg:F0}° contacts={contactCount}");
+        }
     }
+
+    private int _debugLogCounter;
 }

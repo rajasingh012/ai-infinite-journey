@@ -12,7 +12,7 @@ namespace AiInfiniteJourney;
 public partial class RoadChunk : Node3D
 {
     [Export] public Vector2I ChunkSize = new(25, 25); // half-size in world units
-    [Export] public int Resolution = 33;              // samples per axis (must be power-of-2 + 1)
+    [Export] public int Resolution = 51;              // 51 samples → 50 cells at 1m each = full 50m tile, NO scaling needed
 
     private float[,]? _heights;
     private float _cellSize;
@@ -130,11 +130,15 @@ public partial class RoadChunk : Node3D
         };
         AddChild(mz);
 
-        // Build collision using HeightMapShape3D.
+        // Build collision using HeightMapShape3D — smooth, no internal-edge
+        // jitter. Resolution=51 means cellSize=1.0m exactly, so the HeightMapShape3D
+        // covers the full 50m tile natively. NO scaling on CollisionShape3D
+        // (scaling HeightMapShape3D is unreliable in Godot's physics server).
+        // MapData is row-major: index = z * MapWidth + x.
         var heightMap = new float[Resolution * Resolution];
-        for (var i = 0; i < Resolution; i++)
-        for (var j = 0; j < Resolution; j++)
-            heightMap[i * Resolution + j] = _heights[i, j];
+        for (var j = 0; j < Resolution; j++)   // j = Z (rows)
+        for (var i = 0; i < Resolution; i++)   // i = X (columns)
+            heightMap[j * Resolution + i] = _heights[i, j];
 
         var hms = new HeightMapShape3D
         {
@@ -142,18 +146,30 @@ public partial class RoadChunk : Node3D
             MapDepth = Resolution,
             MapData = heightMap,
         };
-        var cs = new CollisionShape3D
-        {
-            Shape = hms,
-        };
-        var sb = new StaticBody3D { Name = "Terrain" };
-        sb.AddChild(cs);
-        // Center the collision shape over the chunk area.
-        cs.Position = new Vector3(0, 0, 0);
-        // The HeightMapShape3D is centered and sized by MapData range.
-        // Its world-size is controlled by MapWidth/MapDepth and the height
-        // values — Godot scales it to (MapWidth-1)*cellSize per axis.
-
+        var sb = new StaticBody3D { Name = "TerrainCollision" };
+        sb.AddChild(new CollisionShape3D { Shape = hms });
         AddChild(sb);
+
+        GD.Print($"[RoadChunk] terrain built at {GlobalPosition}. " +
+                 $"res={Resolution} cell={_cellSize:F2}m " +
+                 $"heightRange=[{MinHeight():F2}, {MaxHeight():F2}]");
+    }
+
+    private float MinHeight()
+    {
+        var min = float.MaxValue;
+        for (var i = 0; i < Resolution; i++)
+        for (var j = 0; j < Resolution; j++)
+            if (_heights![i, j] < min) min = _heights[i, j];
+        return min;
+    }
+
+    private float MaxHeight()
+    {
+        var max = float.MinValue;
+        for (var i = 0; i < Resolution; i++)
+        for (var j = 0; j < Resolution; j++)
+            if (_heights![i, j] > max) max = _heights[i, j];
+        return max;
     }
 }

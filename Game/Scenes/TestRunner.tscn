@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://aij_test_runner_0001"]
+
+[ext_resource type="Script" path="res://Scripts/TestRunner.cs" id="1_test"]
+
+[node name="TestRunner" type="Node"]
+script = ExtResource("1_test")

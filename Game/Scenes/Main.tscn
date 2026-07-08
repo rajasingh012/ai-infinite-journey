@@ -44,7 +44,7 @@ CarPath = NodePath("../Car")
 script = ExtResource("4_trees")
 
 [node name="Car" type="RigidBody3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5.0, 0)
 mass = 1200.0
 script = ExtResource("2_car")
 
