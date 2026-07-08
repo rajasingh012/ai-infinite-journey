@@ -29,6 +29,11 @@ public partial class JourneyApi : Node
     [Signal] public delegate void JourneyLoadedEventHandler();
     [Signal] public delegate void JourneyFailedEventHandler(string error);
 
+    /// <summary>Last chunk endpoint fetched — used by the road manager.</summary>
+    public float LastChunkEndX { get; private set; }
+    public float LastChunkEndZ { get; private set; }
+    public int LastChunkCount { get; private set; }
+
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -98,6 +103,69 @@ public partial class JourneyApi : Node
         }
     }
 
+    /// <summary>
+    /// Fetch the next batch of road chunks ahead of the player. Returns raw JSON
+    /// string — the caller parses it into a RoadChunkPlan. This avoids adding a
+    /// Shared project reference to the Godot game assembly (it already references
+    /// the Shared DLL via the .csproj, but plain System.Text.Json is lighter).
+    /// </summary>
+    public async Task<string?> ChunkAsync(
+        float prevEndX, float prevEndZ, string theme, float distanceAhead)
+    {
+        var url = BaseUrl.TrimEnd('/') + "/api/world/chunk";
+        var payload = JsonSerializer.Serialize(new
+        {
+            prev_end_x = prevEndX,
+            prev_end_z = prevEndZ,
+            theme = theme ?? "",
+            distance_ahead = distanceAhead,
+        });
+
+        try
+        {
+            using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+            using var resp = await Http.PostAsync(url, content);
+            var body = await resp.Content.ReadAsStringAsync();
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var msg = $"HTTP {(int)resp.StatusCode} from {url}: {Truncate(body, 200)}";
+                GD.PushError($"[JourneyApi] {msg}");
+                return null;
+            }
+
+            // Track the last chunk's end point for chaining.
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("chunks", out var chunks) &&
+                    chunks.GetArrayLength() > 0)
+                {
+                    var last = chunks[chunks.GetArrayLength() - 1];
+                    if (last.TryGetProperty("end", out var end) && end.GetArrayLength() == 3)
+                    {
+                        LastChunkEndX = (float)end[0].GetDouble();
+                        LastChunkEndZ = (float)end[2].GetDouble();
+                        LastChunkCount = chunks.GetArrayLength();
+                    }
+                }
+            }
+            catch { /* leave LastChunk* at zero on parse failure */ }
+
+            return body;
+        }
+        catch (TaskCanceledException)
+        {
+            GD.PushError("[JourneyApi] chunk request timed out");
+            return null;
+        }
+        catch (HttpRequestException e)
+        {
+            GD.PushError($"[JourneyApi] chunk network error: {e.Message}");
+            return null;
+        }
+    }
+
     private static string Truncate(string s, int max) =>
-        s.Length <= max ? s : s[..max] + "…";
+        s.Length <= max ? s : s[..max] + "\u2026";
 }

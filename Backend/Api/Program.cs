@@ -38,6 +38,7 @@ switch (provider.ToLowerInvariant())
 
 // --- DI for the World Director itself --------------------------------------
 builder.Services.AddSingleton<IWorldDirector, LlmWorldDirector>();
+builder.Services.AddSingleton<IChunkWorldDirector, ChunkWorldDirector>();
 
 // --- Standard ASP.NET plumbing ---------------------------------------------
 builder.Services.AddControllers();
@@ -48,7 +49,7 @@ app.MapControllers();
 app.MapGet("/", () => Results.Ok(new
 {
     name = "AI Infinite Journey - World Director API",
-    endpoints = new[] { "POST /api/world/direct", "GET /api/world/health" },
+    endpoints = new[] { "POST /api/world/direct", "POST /api/world/chunk", "GET /api/world/health" },
 }));
 app.Run();
 
