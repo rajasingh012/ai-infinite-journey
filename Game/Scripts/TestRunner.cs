@@ -1,3 +1,4 @@
+using System.Linq;
 using Godot;
 
 namespace AiInfiniteJourney;
@@ -34,6 +35,15 @@ public partial class TestRunner : Node
         TestRoadDistanceOffRoad();
         TestRoadDistanceCurvedSegment();
         TestRoadDistanceOutsideSegment();
+        TestFurthestChunkEndEmpty();
+        TestFurthestChunkEndSingle();
+        TestFurthestChunkEndPicksFurthest();
+        TestFurthestChunkEndIgnoresBehind();
+        TestFurthestChunkEndSeedChunkRegression();
+        TestNearestCenterlineStraight();
+        TestNearestCenterlineCurved();
+        TestNearestCenterlineClampsAtEnds();
+        TestNearestCenterlineDegenerate();
 
         GD.Print($"\n=== Unit Tests: {_passed} passed, {_failed} failed ===\n");
 
@@ -242,6 +252,123 @@ public partial class TestRunner : Node
             new Vector3(0, 0, -200));
         Assert("RoadDistance: past end uses clamped t (200m off)",
             Mathf.Abs(dist - 140f) < 0.5f && !onRoad, $"dist={dist:F3}");
+    }
+
+    // --- ChunkedRoadManager.DistanceToFurthestChunkEnd (refetch trigger) ---
+
+    private void TestFurthestChunkEndEmpty()
+    {
+        // No chunks at all → 0 (will trigger an immediate fetch via OnTimerTick).
+        var dist = ChunkedRoadManager.DistanceToFurthestChunkEnd(
+            new float[0], carZ: 0f);
+        Assert("FurthestChunkEnd: empty list returns 0", dist == 0f, $"dist={dist:F3}");
+    }
+
+    private void TestFurthestChunkEndSingle()
+    {
+        // One chunk ending at z=-450, car at z=0 → 450m ahead.
+        var dist = ChunkedRoadManager.DistanceToFurthestChunkEnd(
+            new[] { -450f }, carZ: 0f);
+        Assert("FurthestChunkEnd: single chunk returns its distAhead",
+            Mathf.Abs(dist - 450f) < 0.01f, $"dist={dist:F3}");
+    }
+
+    private void TestFurthestChunkEndPicksFurthest()
+    {
+        // Three chunks ending at -60, -125, -450. Should pick -450, not -60.
+        // (The old "nearest end" bug picked -60, triggering an infinite fetch loop.)
+        var dist = ChunkedRoadManager.DistanceToFurthestChunkEnd(
+            new[] { -60f, -125f, -450f }, carZ: 0f);
+        Assert("FurthestChunkEnd: picks most-negative (furthest ahead)",
+            Mathf.Abs(dist - 450f) < 0.01f, $"dist={dist:F3}");
+    }
+
+    private void TestFurthestChunkEndIgnoresBehind()
+    {
+        // Mix of behind, beside, ahead. Only the furthest ahead (-450) counts.
+        var dist = ChunkedRoadManager.DistanceToFurthestChunkEnd(
+            new[] { 100f, 0f, -60f, -450f }, carZ: 0f);
+        Assert("FurthestChunkEnd: ignores chunks at or behind carZ",
+            Mathf.Abs(dist - 450f) < 0.01f, $"dist={dist:F3}");
+    }
+
+    private void TestFurthestChunkEndSeedChunkRegression()
+    {
+        // The exact scenario from the bug: seed chunk ends at -60 (closest),
+        // fetched chunks extend to -467. Old code returned 60 (seed end),
+        // looping forever. New code returns 467 (furthest end).
+        var seedEndZ = -60f;
+        var fetchedEnds = new[] { -124.5f, -197.0f, -253.6f, -322.8f, -392.5f, -467.0f };
+        var allEnds = new[] { seedEndZ }.Concat(fetchedEnds);
+        var dist = ChunkedRoadManager.DistanceToFurthestChunkEnd(allEnds, carZ: 0f);
+        Assert("FurthestChunkEnd: seed chunk (60m) does not dominate over fetched chunks (467m)",
+            Mathf.Abs(dist - 467f) < 0.01f, $"dist={dist:F3}");
+    }
+
+    // --- ChunkedRoadManager.TryNearestCenterlinePoint (off-road recovery) ---
+
+    private void TestNearestCenterlineStraight()
+    {
+        // Straight -Z segment from (0,0,0) to (0,0,-60). Car at (5, 0, -30):
+        // nearest point is (0,0,-30), pull vector is (5,0,0) (points from
+        // road to car, so we apply force in -X to pull back).
+        var ok = ChunkedRoadManager.TryNearestCenterlinePoint(
+            new Vector3(0, 0, 0), new Vector3(0, 0, -60),
+            new Vector3(5, 0, -30),
+            out var center, out var pull);
+        Assert("NearestCenterline: straight returns true", ok);
+        Assert("NearestCenterline: centerline point is (0,0,-30)",
+            (center - new Vector3(0, 0, -30)).Length() < 0.01f,
+            $"center={center}");
+        Assert("NearestCenterline: pull vector points from road to car (+X)",
+            Mathf.Abs(pull.X - 5f) < 0.01f && Mathf.Abs(pull.Y) < 0.01f && Mathf.Abs(pull.Z) < 0.01f,
+            $"pull={pull}");
+    }
+
+    private void TestNearestCenterlineCurved()
+    {
+        // Curved segment (0,0,0) → (10,0,-60). At t=0.5 the centerline is
+        // (5,0,-30). For a car at (10, 0, -30), the actual projection is
+        // t ≈ 0.514 (not 0.5) because the seg has both X and Z components.
+        // We check the projection is close to the midpoint and the pull
+        // is roughly perpendicular to the road (mostly +X).
+        var ok = ChunkedRoadManager.TryNearestCenterlinePoint(
+            new Vector3(0, 0, 0), new Vector3(10, 0, -60),
+            new Vector3(10, 0, -30),  // 5m to the right of the centerline
+            out var center, out var pull);
+        Assert("NearestCenterline: curved returns true", ok);
+        Assert("NearestCenterline: curved centerline is near midpoint (5,0,-30)",
+            (center - new Vector3(5, 0, -30)).Length() < 1.0f,
+            $"center={center}");
+        Assert("NearestCenterline: curved pull is mostly +X with magnitude ~5",
+            pull.Length() > 3f && pull.Length() < 7f && pull.X > 0f,
+            $"pull={pull} mag={pull.Length():F2}");
+    }
+
+    private void TestNearestCenterlineClampsAtEnds()
+    {
+        // Car at (2, 0, -200) is way past the end of a (0,0,0)→(0,0,-60)
+        // segment. t clamps to 1, so centerline point is (0,0,-60) and
+        // pull vector is (2, 0, -140).
+        var ok = ChunkedRoadManager.TryNearestCenterlinePoint(
+            new Vector3(0, 0, 0), new Vector3(0, 0, -60),
+            new Vector3(2, 0, -200),
+            out var center, out var pull);
+        Assert("NearestCenterline: clamps at end", ok);
+        Assert("NearestCenterline: clamped center is (0,0,-60)",
+            (center - new Vector3(0, 0, -60)).Length() < 0.01f, $"center={center}");
+        Assert("NearestCenterline: pull from clamped end is (2, 0, -140)",
+            (pull - new Vector3(2, 0, -140)).Length() < 0.01f, $"pull={pull}");
+    }
+
+    private void TestNearestCenterlineDegenerate()
+    {
+        // Zero-length segment should return false.
+        var ok = ChunkedRoadManager.TryNearestCenterlinePoint(
+            new Vector3(0, 0, 0), new Vector3(0, 0, 0),
+            new Vector3(5, 0, -5),
+            out _, out _);
+        Assert("NearestCenterline: degenerate segment returns false", !ok);
     }
 
     // ========================================================================

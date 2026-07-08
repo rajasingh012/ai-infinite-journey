@@ -46,13 +46,15 @@ public partial class BuildingScatter : Node3D
 
         if (density <= 0) return;
 
-        // Margin from road edge: 2m for buildings, 1m for trees, 0.5m for rocks
+        // Margin from road edge. Must account for obstacle half-size so
+        // buildings don't overlap the road surface. Max building half-size
+        // is 4m (wide 8x8), so buildings need margin ≥ 4m.
         var margin = sideTheme switch
         {
-            "buildings" => 2f,
-            "trees" => 1f,
-            "rocks" => 0.5f,
-            _ => 2f,
+            "buildings" => 5f,
+            "trees" => 2f,
+            "rocks" => 1f,
+            _ => 5f,
         };
 
         var offsetFromCenter = width / 2 + margin;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using Godot;
 
@@ -101,6 +102,12 @@ public partial class ChunkedRoadManager : Node3D
         CallDeferred(nameof(FetchNextBatch));
     }
 
+    /// <summary>How close the car gets to the last chunk's end before
+    /// we fetch a new batch. Should be less than the per-batch road
+    /// length (3 chunks × ~65m = ~200m) so the fetch completes before
+    /// the road runs out.</summary>
+    private const float RefetchThresholdMeters = 350f;
+
     public override void _Process(double delta)
     {
         if (_car is null) return;
@@ -115,10 +122,11 @@ public partial class ChunkedRoadManager : Node3D
             var endZ = _chunks[i].EndPosition.Z;
             var startZ = _chunks[i].StartPosition.Z;
 
-            // Keep window: chunk must overlap [-100, +200] metres around car
+            // Keep window: chunk must overlap [-100, +500] metres around car
             // in the Z axis (ahead = more negative, behind = more positive).
+            // 500m of visible road ahead lets the player see what's coming.
             var behind = endZ > carZ + 100f;        // chunk end is more positive than 100m behind car
-            var tooFarAhead = startZ < carZ - 200f;  // chunk start is more than 200m ahead
+            var tooFarAhead = startZ < carZ - 500f;  // chunk start is more than 500m ahead
 
             if (behind || tooFarAhead)
             {
@@ -126,14 +134,29 @@ public partial class ChunkedRoadManager : Node3D
                 _chunks.RemoveAt(i);
             }
         }
+
+        // Position-driven fetch: if the car is closer than
+        // RefetchThresholdMeters to the end of the FURTHEST-ahead chunk,
+        // fetch a new batch so the road continues indefinitely.
+        // (Logic lives in the static DistanceToFurthestChunkEnd helper so
+        // it's unit-testable without instantiating Godot nodes.)
+        if (!_fetching)
+        {
+            var distAhead = DistanceToFurthestChunkEnd(
+                _chunks.Select(c => c.EndPosition.Z), carZ);
+            if (distAhead < RefetchThresholdMeters)
+                FetchNextBatch();
+        }
     }
 
     private void OnTimerTick()
     {
         if (_fetching) return;
-        // Only fetch more if we have fewer than 3 active chunks.
-        if (_chunks.Count >= 3) return;
-        FetchNextBatch();
+        // Fallback: timer-based re-check, in case _Process-based fetch is
+        // throttled by frame rate or the car is stationary. The
+        // _Process distance check is the primary driver; this just guards
+        // against pathological cases.
+        if (_chunks.Count == 0) FetchNextBatch();
     }
 
     private async void FetchNextBatch()
@@ -201,21 +224,12 @@ public partial class ChunkedRoadManager : Node3D
     /// </summary>
     private List<ChunkSegment> BuildFallback()
     {
-        // Anchor the fallback to the car's current position so chunks always
-        // appear immediately in front of the player, not chained from a
-        // far-away historical end-point. The car moves in -Z; if it's ahead
-        // of the previous batch's end, we use car position. Otherwise we
-        // chain from the previous end (which is still ahead).
-        var carPos = _car?.Position;
-        var anchorX = carPos?.X ?? _nextChunkEndX;
-        var anchorZ = carPos?.Z ?? _nextChunkEndZ;
-        // If the car is already past where the last chunk ended (it drove
-        // forward), anchor from the car so the new batch starts right at
-        // the wheels.
-        if (anchorZ > _nextChunkEndZ)
-        {
-            anchorZ = _nextChunkEndZ; // car is behind previous batch end; chain normally
-        }
+        // Anchor from the furthest chunk end so batches chain seamlessly.
+        // The car position is NOT used for anchoring — it jumps sideways
+        // relative to where the last batch ended, creating gaps where the
+        // road "suddenly ends" and reappears 200m ahead, offset laterally.
+        var anchorX = _nextChunkEndX;
+        var anchorZ = _nextChunkEndZ;
 
         var rng = new Random(
             (uint)(anchorX.GetHashCode() ^ anchorZ.GetHashCode() ^ Theme.GetHashCode()) ^ 0x9e3779b9u);
@@ -225,7 +239,7 @@ public partial class ChunkedRoadManager : Node3D
         // Mild initial heading so the road starts straight ahead, then drifts.
         var headingDeg = rng.Range(-5f, 5f);
 
-        for (int i = 0; i < 2; i++)
+        for (int i = 0; i < 3; i++)
         {
             var length = rng.Range(50f, 80f);
             // Smaller turn range keeps road near centerline for longer.
@@ -240,7 +254,7 @@ public partial class ChunkedRoadManager : Node3D
             var sX = posX; var sZ = posZ;
             var eX = posX + dx; var eZ = posZ + dz;
 
-            var deadEnd = (i == 1 && rng.Next() < 0.30f);
+            var deadEnd = (i == 2 && rng.Next() < 0.30f);
 
             chunks.Add(new ChunkSegment
             {
@@ -278,7 +292,9 @@ public partial class ChunkedRoadManager : Node3D
 
         var shape = new BoxShape3D
         {
-            Size = new Vector3(wallLength, height, thickness),
+            // Size convention matches the road mesh: local Z = length
+            // (along the road), local X = thickness (across the road).
+            Size = new Vector3(thickness, height, wallLength),
         };
         wall.AddChild(new CollisionShape3D { Shape = shape });
 
@@ -297,42 +313,80 @@ public partial class ChunkedRoadManager : Node3D
         var node = new Node3D();
         node.Name = $"chunk_{chunk.ChunkId}";
 
-        // --- Road visual: bright BoxMesh plane that sits above the terrain ---
+        // --- Road visual: smooth road that follows the chunk's heading ---
+        // Each chunk is a straight BoxMesh from start to end. At curve
+        // joints the heading changes between chunks, creating a wedge gap.
+        // Extend the mesh slightly past each joint (overlap ~chunk width)
+        // so the gap is covered. The overlap is along the direction vector.
         var direction = (end - start).Normalized();
         var roadLength = (end - start).Length();
+        // Extend mesh by half-width at each end to cover the curve joint gap.
+        var overlap = chunk.Width * 0.5f;
+        var meshStart = start - direction * overlap;
+        var meshEnd = end + direction * overlap;
+        var meshLength = roadLength + overlap * 2f;
+        var meshMid = (meshStart + meshEnd) / 2f;
 
-        // Sample terrain heights at multiple points. Use a single average
-        // (terrain is smooth within a chunk) for the simple BoxMesh approach —
-        // ImmediateMesh was failing to render visibly.
-        var midPoint = (start + end) / 2;
-        var midHeight = TerrainHeight.Sample(midPoint.X, midPoint.Z);
+        // Sample terrain at multiple points across the mesh area and use the
+        // MAX height so the flat road box always sits above terrain bumps.
+        // A single midpoint sample lets terrain poke through the road surface
+        // and block the car (the terrain HeightMapShape3D is continuous under
+        // the road).
 
-        // Main road surface: a bright, opaque BoxMesh that's GUARANTEED to
-        // render. BoxMesh has no backface-culling issues and survives
-        // compression artefacts that ImmediateMesh suffered from.
+        var roadWidth = chunk.Width;
+        var perpVec = new Vector3(-direction.Z, 0, direction.X);
+        var halfW = roadWidth / 2f;
+        var maxH = float.MinValue;
+        var steps = new[] { 0f, 0.25f, 0.5f, 0.75f, 1f };
+        var sides = new[] { -halfW, halfW };
+        foreach (var t in steps)
+        {
+            var bx = start.X + (end.X - start.X) * t;
+            var bz = start.Z + (end.Z - start.Z) * t;
+            foreach (var s in sides)
+            {
+                var px = bx + perpVec.X * s;
+                var pz = bz + perpVec.Z * s;
+                var h = TerrainHeight.Sample(px, pz);
+                if (h > maxH) maxH = h;
+            }
+        }
+        var roadY = maxH + 0.05f;
+
+        // Main road surface: extended BoxMesh that overlaps into curve joints.
         var roadBox = new BoxMesh
         {
-            Size = new Vector3(roadLength, 0.3f, chunk.Width),
+            Size = new Vector3(chunk.Width, 0.3f, meshLength),
             Material = new StandardMaterial3D
             {
-                AlbedoColor = new Color(0.10f, 0.10f, 0.12f), // very dark grey
+                AlbedoColor = new Color(0.10f, 0.10f, 0.12f),
                 Roughness = 0.95f,
                 Metallic = 0.0f,
             },
         };
         var roadInstance = new MeshInstance3D { Mesh = roadBox, Name = "road_surface" };
-        // Lift the box above the terrain so the top face sits ~0.5m above
-        // the terrain at the chunk midpoint. Without this the road sinks
-        // under hills (terrain at +3m) or floats above valleys (terrain at
-        // -3m), making it invisible from the chase camera.
-        roadInstance.Position = midPoint + new Vector3(0, midHeight + 0.5f, 0);
+        roadInstance.Position = meshMid + new Vector3(0, roadY, 0);
         roadInstance.Rotation = new Vector3(0, Mathf.Atan2(direction.X, -direction.Z), 0);
         node.AddChild(roadInstance);
 
-        // Yellow center line: bright, slightly-raised thin box.
+        // Flat collision surface at the road visual height. Without this the
+        // car drives on the bumpy terrain HeightMapShape3D, getting stuck on
+        // hills. The box is 0.3m thick (matching the visual mesh depth),
+        // centered at roadY so its top surface is at roadY+0.15.
+        var roadCol = new StaticBody3D { Name = "road_collision" };
+        var colShape = new BoxShape3D
+        {
+            Size = new Vector3(chunk.Width, 0.3f, meshLength),
+        };
+        roadCol.AddChild(new CollisionShape3D { Shape = colShape });
+        roadCol.Position = meshMid + new Vector3(0, roadY, 0);
+        roadCol.Rotation = new Vector3(0, Mathf.Atan2(direction.X, -direction.Z), 0);
+        node.AddChild(roadCol);
+
+        // Yellow center line: extended to match road mesh.
         var centerLine = new BoxMesh
         {
-            Size = new Vector3(roadLength - 1f, 0.05f, 0.3f),
+            Size = new Vector3(0.3f, 0.05f, meshLength - 1f),
             Material = new StandardMaterial3D
             {
                 AlbedoColor = new Color(1.0f, 0.95f, 0.2f),
@@ -343,8 +397,7 @@ public partial class ChunkedRoadManager : Node3D
             },
         };
         var lineInstance = new MeshInstance3D { Mesh = centerLine, Name = "center_line" };
-        // Stack on top of road box (Y offset = road box top + small gap).
-        lineInstance.Position = midPoint + new Vector3(0, midHeight + 0.7f, 0);
+        lineInstance.Position = meshMid + new Vector3(0, roadY + 0.2f, 0);
         lineInstance.Rotation = new Vector3(0, Mathf.Atan2(direction.X, -direction.Z), 0);
         node.AddChild(lineInstance);
 
@@ -353,11 +406,16 @@ public partial class ChunkedRoadManager : Node3D
         // collision but no visible mesh — pure physical barriers.
         var perp = new Vector3(-direction.Z, 0, direction.X);
         var wallHeight = 1.5f;
+        // Walls 0.3m thick — the car can briefly clip past at high speed,
+        // but the off-road pull in CarController brings it back. We keep
+        // them thin (not fat) so the car can't get STUCK inside the wall
+        // geometry when the pull yanks it back toward the road.
         var wallThickness = 0.3f;
         var wallOffset = chunk.Width / 2f + wallThickness / 2f;
 
-        // Lift walls to terrain height so they don't intersect terrain below.
-        var wallMidY = TerrainHeight.Sample((start.X + end.X) / 2f, (start.Z + end.Z) / 2f) + wallHeight / 2f;
+        // Lift walls to road height so they don't intersect terrain below
+        // and stay flush with the raised road surface.
+        var wallMidY = roadY + 0.05f + wallHeight / 2f;
 
         SpawnSideWall(node, start, end, direction, perp, wallOffset, wallThickness, wallHeight, -1, wallMidY);
         SpawnSideWall(node, start, end, direction, perp, wallOffset, wallThickness, wallHeight, +1, wallMidY);
@@ -441,7 +499,38 @@ public partial class ChunkedRoadManager : Node3D
     }
 
     /// <summary>
-    /// Pure-math projection: for a road segment running from chunkStart to
+    /// Pure-math: given the Z-positions of all active chunk ends and the
+    /// car's Z, return the distance from the car to the FURTHEST-ahead
+    /// chunk end. This is the trigger for refetching — when the road
+    /// itself is about to run out (not just the closest chunk).
+    ///
+    /// "Ahead" in Godot is more-negative Z (car drives in -Z). Chunks with
+    /// EndZ >= carZ are not ahead (they're beside or behind the car) and
+    /// are ignored. Returns 0f if no chunks are ahead, meaning a fetch
+    /// should fire immediately.
+    ///
+    /// (Previous bug: this used the highest endZ — i.e. the seed chunk at
+    /// 60m — and triggered an infinite fetch loop spawning chunks at
+    /// z=-215000m. Use this helper to get the right answer.)
+    /// </summary>
+    public static float DistanceToFurthestChunkEnd(IEnumerable<float> chunkEndZs, float carZ)
+    {
+        var furthestEndZ = float.PositiveInfinity;
+        var hasAhead = false;
+        foreach (var endZ in chunkEndZs)
+        {
+            if (endZ < carZ)
+            {
+                hasAhead = true;
+                if (endZ < furthestEndZ)
+                    furthestEndZ = endZ;
+            }
+        }
+        return hasAhead ? carZ - furthestEndZ : 0f;
+    }
+
+    /// <summary>
+    /// Pure-math: for a road segment running from chunkStart to
     /// chunkEnd with given width, compute the lateral distance from worldPos
     /// to the centerline. Returns (perpDistance, halfWidth, isOnRoad).
     /// Extracted as a static so it's testable without instantiating Godot nodes.
@@ -462,6 +551,29 @@ public partial class ChunkedRoadManager : Node3D
     }
 
     /// <summary>
+    /// Pure-math: for a road segment running from chunkStart to chunkEnd,
+    /// return the nearest centerline point to worldPos AND the lateral
+    /// vector from that point to worldPos (i.e. the direction the car
+    /// needs to be pulled to get back on the road). Returns false if
+    /// the segment is degenerate.
+    /// Used by CarController to apply a soft "tractor beam" force when
+    /// the car is off-road, so it can't get stranded past the side walls.
+    /// </summary>
+    public static bool TryNearestCenterlinePoint(
+        Vector3 chunkStart, Vector3 chunkEnd, Vector3 worldPos,
+        out Vector3 centerlinePoint, out Vector3 pullVector)
+    {
+        var seg = chunkEnd - chunkStart;
+        var segLen = seg.Length();
+        if (segLen < 0.01f) { centerlinePoint = default; pullVector = default; return false; }
+
+        var t = Math.Clamp((worldPos - chunkStart).Dot(seg) / (segLen * segLen), 0f, 1f);
+        centerlinePoint = chunkStart + seg * t;
+        pullVector = worldPos - centerlinePoint;  // points FROM road TO car
+        return true;
+    }
+
+    /// <summary>
     /// Compute the lateral distance from a world position to the nearest
     /// road centerline. Returns a positive number = distance off-road in
     /// metres; the chunk's Width/2 is the road's edge.
@@ -472,6 +584,24 @@ public partial class ChunkedRoadManager : Node3D
         if (chunk is null) return (float.PositiveInfinity, 0f, false);
 
         return ComputeRoadDistance(chunk.StartPosition, chunk.EndPosition, chunk.Width, worldPos);
+    }
+
+    /// <summary>
+    /// Returns the vector pointing from the nearest road centerline point
+    /// to the given world position. Length is the off-road distance.
+    /// Used by CarController to apply a soft "tractor beam" force when
+    /// the car has gone past the side walls, so it can return to the
+    /// road instead of being stranded.
+    /// Returns Vector3.Zero if no chunk is nearby.
+    /// </summary>
+    public Vector3 GetPullVector(Vector3 worldPos)
+    {
+        var chunk = FindChunkFor(worldPos);
+        if (chunk is null) return Vector3.Zero;
+        if (!TryNearestCenterlinePoint(chunk.StartPosition, chunk.EndPosition, worldPos,
+                out _, out var pull))
+            return Vector3.Zero;
+        return pull;
     }
 }
 
