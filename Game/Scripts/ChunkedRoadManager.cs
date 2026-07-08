@@ -223,6 +223,31 @@ public partial class ChunkedRoadManager : Node3D
         return chunks;
     }
 
+    private void SpawnSideWall(
+        Node3D parent, Vector3 start, Vector3 end, Vector3 direction, Vector3 perp,
+        float offset, float thickness, float height, int sideMultiplier)
+    {
+        var wallCenter = (start + end) / 2 + perp * (offset * sideMultiplier);
+        var wallLength = (end - start).Length();
+
+        var wall = new StaticBody3D
+        {
+            Position = new Vector3(wallCenter.X, height / 2f, wallCenter.Z),
+            Rotation = new Vector3(0, Mathf.Atan2(direction.X, -direction.Z), 0),
+            Name = sideMultiplier < 0 ? "wall_left" : "wall_right",
+        };
+
+        var shape = new BoxShape3D
+        {
+            Size = new Vector3(wallLength, height, thickness),
+        };
+        wall.AddChild(new CollisionShape3D { Shape = shape });
+
+        // No mesh — wall is invisible. Player sees the road surface but
+        // feels the car bump against the invisible boundary.
+        parent.AddChild(wall);
+    }
+
     private void AddChunkNode(ChunkSegment chunk)
     {
         var start = new Vector3(chunk.Start[0], 0, chunk.Start[2]);
@@ -267,6 +292,17 @@ public partial class ChunkedRoadManager : Node3D
         lineInstance.Rotation = new Vector3(0, Mathf.Atan2(direction.X, -direction.Z), 0);
         node.AddChild(lineInstance);
 
+        // --- Invisible side walls to keep the car on the road ---
+        // Two thin tall StaticBody3D boxes along the road edges. They have
+        // collision but no visible mesh — pure physical barriers.
+        var perp = new Vector3(-direction.Z, 0, direction.X);
+        var wallHeight = 1.2f;
+        var wallThickness = 0.3f;
+        var wallOffset = chunk.Width / 2f + wallThickness / 2f;
+
+        SpawnSideWall(node, start, end, direction, perp, wallOffset, wallThickness, wallHeight, -1);
+        SpawnSideWall(node, start, end, direction, perp, wallOffset, wallThickness, wallHeight, +1);
+
         // --- Side obstacles ---
         if (!string.IsNullOrWhiteSpace(chunk.SideLeft) && chunk.SideLeft != "none")
         {
@@ -292,7 +328,7 @@ public partial class ChunkedRoadManager : Node3D
         }
 
         AddChild(node);
-        _chunks.Add(new ChunkNode(chunk.ChunkId, end, node));
+        _chunks.Add(new ChunkNode(chunk.ChunkId, start, end, chunk.Width, node));
     }
 
     /// <summary>Minimal in-memory fallback RNG.</summary>
@@ -311,7 +347,73 @@ public partial class ChunkedRoadManager : Node3D
     }
 
     /// <summary>Tracked chunk state.</summary>
-    private sealed record ChunkNode(int Id, Vector3 EndPosition, Node3D? Node);
+    public sealed record ChunkNode(int Id, Vector3 StartPosition, Vector3 EndPosition, float Width, Node3D? Node);
+
+    /// <summary>
+    /// Find the chunk whose road segment the given world position projects
+    /// onto. Returns null if the position is not within any active chunk
+    /// (e.g. car is between freed chunks during streaming).
+    /// </summary>
+    public ChunkNode? FindChunkFor(Vector3 worldPos)
+    {
+        ChunkNode? best = null;
+        float bestT = float.MaxValue;
+        foreach (var c in _chunks)
+        {
+            // Parametric distance along the segment, clamped 0..1.
+            var seg = c.EndPosition - c.StartPosition;
+            var segLen = seg.Length();
+            if (segLen < 0.01f) continue;
+            var t = ((worldPos - c.StartPosition).Dot(seg) / (segLen * segLen));
+            t = Math.Clamp(t, 0f, 1f);
+            var projection = c.StartPosition + seg * t;
+            var perpDist = (worldPos - projection).Length();
+            // Prefer the chunk where the projection falls inside [0,1]
+            // (the car's "on this road segment" case).
+            var clampedT = Math.Clamp(((worldPos - c.StartPosition).Dot(seg) / (segLen * segLen)), 0f, 1f);
+            var score = (clampedT == t ? 0f : 1f) + perpDist * 0.01f;
+            if (score < bestT)
+            {
+                bestT = score;
+                best = c;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Pure-math projection: for a road segment running from chunkStart to
+    /// chunkEnd with given width, compute the lateral distance from worldPos
+    /// to the centerline. Returns (perpDistance, halfWidth, isOnRoad).
+    /// Extracted as a static so it's testable without instantiating Godot nodes.
+    /// </summary>
+    public static (float distanceFromCenterline, float roadHalfWidth, bool isOnRoad) ComputeRoadDistance(
+        Vector3 chunkStart, Vector3 chunkEnd, float width, Vector3 worldPos)
+    {
+        var seg = chunkEnd - chunkStart;
+        var segLen = seg.Length();
+        if (segLen < 0.01f) return (float.PositiveInfinity, width / 2f, false);
+
+        var t = (worldPos - chunkStart).Dot(seg) / (segLen * segLen);
+        t = Math.Clamp(t, 0f, 1f);
+        var projection = chunkStart + seg * t;
+        var perpDist = (worldPos - projection).Length();
+        var halfWidth = width / 2f;
+        return (perpDist, halfWidth, perpDist <= halfWidth);
+    }
+
+    /// <summary>
+    /// Compute the lateral distance from a world position to the nearest
+    /// road centerline. Returns a positive number = distance off-road in
+    /// metres; the chunk's Width/2 is the road's edge.
+    /// </summary>
+    public (float distanceFromCenterline, float roadHalfWidth, bool isOnRoad) GetRoadDistance(Vector3 worldPos)
+    {
+        var chunk = FindChunkFor(worldPos);
+        if (chunk is null) return (float.PositiveInfinity, 0f, false);
+
+        return ComputeRoadDistance(chunk.StartPosition, chunk.EndPosition, chunk.Width, worldPos);
+    }
 }
 
 /// <summary>

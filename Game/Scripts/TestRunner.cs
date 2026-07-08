@@ -29,6 +29,11 @@ public partial class TestRunner : Node
         TestRoadHeightNearTerrain();
         TestResolutionProducesExactCellSize();
         TestMapDataIndexOrder();
+        TestRoadDistanceOnCenterline();
+        TestRoadDistanceLateralOffset();
+        TestRoadDistanceOffRoad();
+        TestRoadDistanceCurvedSegment();
+        TestRoadDistanceOutsideSegment();
 
         GD.Print($"\n=== Unit Tests: {_passed} passed, {_failed} failed ===\n");
 
@@ -174,6 +179,69 @@ public partial class TestRunner : Node
         var actual = mapData[3 * resolution + 2];
         Assert("MapData row-major z*width+x correct",
             actual == expected, $"expected={expected} actual={actual}");
+    }
+
+    // --- ChunkedRoadManager distance math (off-road penalty support) ---
+
+    private void TestRoadDistanceOnCenterline()
+    {
+        // Car exactly on the centerline of a straight segment
+        var (dist, halfWidth, onRoad) = ChunkedRoadManager.ComputeRoadDistance(
+            new Vector3(0, 0, 0), new Vector3(0, 0, -60), 8f,
+            new Vector3(0, 0, -30));
+        Assert("RoadDistance: centerline is on-road",
+            dist < 0.01f && onRoad, $"dist={dist:F3} onRoad={onRoad}");
+        Assert("RoadDistance: halfWidth = 4m for width=8",
+            Mathf.IsEqualApprox(halfWidth, 4f), $"halfWidth={halfWidth:F2}");
+    }
+
+    private void TestRoadDistanceLateralOffset()
+    {
+        // Car 2m to the right of centerline on a -Z segment.
+        // Direction is -Z, perpendicular is +X. 2m right → x=+2.
+        var (dist, _, onRoad) = ChunkedRoadManager.ComputeRoadDistance(
+            new Vector3(0, 0, 0), new Vector3(0, 0, -60), 8f,
+            new Vector3(2, 0, -30));
+        Assert("RoadDistance: 2m right still on-road (half=4)",
+            Mathf.IsEqualApprox(dist, 2f) && onRoad, $"dist={dist:F3} onRoad={onRoad}");
+    }
+
+    private void TestRoadDistanceOffRoad()
+    {
+        // Car 6m to the right — off-road (half-width is 4m)
+        var (dist, _, onRoad) = ChunkedRoadManager.ComputeRoadDistance(
+            new Vector3(0, 0, 0), new Vector3(0, 0, -60), 8f,
+            new Vector3(6, 0, -30));
+        Assert("RoadDistance: 6m right is off-road",
+            Mathf.IsEqualApprox(dist, 6f) && !onRoad, $"dist={dist:F3} onRoad={onRoad}");
+    }
+
+    private void TestRoadDistanceCurvedSegment()
+    {
+        // Curved chunk: start (0,0,0), end (10,0,-60). Direction ≈ (0.166, 0, -1).
+        // Perpendicular (right) ≈ (1, 0, 0.166). A point 5m in that perpendicular
+        // direction from the midpoint should be ~5m off the centerline.
+        var mid = new Vector3(5, 0, -30);
+        var direction = (new Vector3(10, 0, -60)).Normalized();
+        var perp = new Vector3(-direction.Z, 0, direction.X);
+        var probe = mid + perp * 5f;
+
+        var (dist, _, onRoad) = ChunkedRoadManager.ComputeRoadDistance(
+            new Vector3(0, 0, 0), new Vector3(10, 0, -60), 8f,
+            probe);
+        Assert("RoadDistance: curved segment lateral math correct",
+            Mathf.Abs(dist - 5f) < 0.5f && !onRoad, $"dist={dist:F3} onRoad={onRoad}");
+    }
+
+    private void TestRoadDistanceOutsideSegment()
+    {
+        // Probe is far past the end of the segment — t clamps to 1.0,
+        // so distance is measured from the end point.
+        var (dist, _, onRoad) = ChunkedRoadManager.ComputeRoadDistance(
+            new Vector3(0, 0, 0), new Vector3(0, 0, -60), 8f,
+            new Vector3(0, 0, -200));
+        Assert("RoadDistance: past end uses clamped t (200m off)",
+            Mathf.Abs(dist - 140f) < 0.5f && !onRoad, $"dist={dist:F3}");
     }
 
     // ========================================================================

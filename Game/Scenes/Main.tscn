@@ -48,6 +48,7 @@ script = ExtResource("4_trees")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5.0, 0)
 mass = 1200.0
 script = ExtResource("2_car")
+ChunkedRoadManagerPath = NodePath("../ChunkedRoadManager")
 
 [node name="ChaseCamera" type="Node3D" parent="Car"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, 6)

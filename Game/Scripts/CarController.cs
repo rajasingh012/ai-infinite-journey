@@ -35,6 +35,11 @@ public partial class CarController : RigidBody3D
     [Export] public float LateralGripFactor = 3.0f;   // Lowered from 12: high grip impulse oscillated with terrain jitter
     [Export] public float Downforce = 20.0f;           // Speed-scaled downforce multiplier
     [Export] public float AntiBounceForce = 50.0f;     // Damps vertical velocity on contact to prevent earthquake jitter
+    [Export] public NodePath? ChunkedRoadManagerPath { get; set; } // Optional: enables off-road penalty
+
+    // Off-road penalty tuning
+    private const float OffRoadThrottleScale = 0.25f;  // 25% throttle when wheels off the road
+    private const float OffRoadLateralDrag   = 5.0f;   // Strong sideways drag off-road
 
     private float _steerAngleDeg;
 
@@ -95,6 +100,26 @@ public partial class CarController : RigidBody3D
         var throttle = Input.GetActionStrength("forward");
         var reverse = Input.GetActionStrength("back");
         var braking = Input.IsActionPressed("brake") || (throttle < 0.01f && reverse < 0.01f && LinearVelocity.Length() < 0.5f);
+
+        // Off-road penalty: if the road manager reports the car is off the road,
+        // halve effective throttle and add strong lateral drag. Combined with the
+        // invisible side walls, this keeps the car mostly on the road with a
+        // realistic "regret" feel for any drifts off.
+        var offRoad = false;
+        if (ChunkedRoadManagerPath is not null)
+        {
+            var roadMgr = GetNodeOrNull<ChunkedRoadManager>(ChunkedRoadManagerPath);
+            if (roadMgr is not null)
+            {
+                var (dist, halfWidth, isOnRoad) = roadMgr.GetRoadDistance(GlobalPosition);
+                offRoad = !isOnRoad;
+                if (offRoad)
+                {
+                    throttle *= OffRoadThrottleScale;
+                    reverse *= OffRoadThrottleScale;
+                }
+            }
+        }
 
         // Forward force along the car's local -Z (Godot convention: -Z is forward)
         var forwardDir = -GlobalTransform.Basis.Z;
@@ -158,7 +183,8 @@ public partial class CarController : RigidBody3D
         // --- Lateral grip: kill sideways velocity component ---
         var vel = LinearVelocity;
         var lateralVel = vel - forwardDir * fwdSpeed;
-        var gripImpulse = -lateralVel * Mass * LateralGripFactor * dt;
+        var gripMultiplier = offRoad ? OffRoadLateralDrag : LateralGripFactor;
+        var gripImpulse = -lateralVel * Mass * gripMultiplier * dt;
         ApplyCentralImpulse(gripImpulse);
 
         // --- Downforce to prevent the car from feeling floaty ---
@@ -175,7 +201,8 @@ public partial class CarController : RigidBody3D
         {
             _debugLogCounter = 0;
             GD.Print($"[Car] pos={GlobalPosition:F1} vel={LinearVelocity:F1} " +
-                     $"fwd={fwdSpeed:F1} steer={_steerAngleDeg:F0}° contacts={contactCount}");
+                     $"fwd={fwdSpeed:F1} steer={_steerAngleDeg:F0}° contacts={contactCount} " +
+                     (offRoad ? "OFF_ROAD" : ""));
         }
     }
 
