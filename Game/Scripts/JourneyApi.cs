@@ -41,8 +41,8 @@ public partial class JourneyApi : Node
 
     private static readonly System.Net.Http.HttpClient Http = new()
     {
-        // The local backend is fast; 10s is generous.
-        Timeout = TimeSpan.FromSeconds(10),
+        // The LLM backend can take 60-180s for reasoning models.
+        Timeout = TimeSpan.FromSeconds(180),
     };
 
     public async Task<JourneyPlan?> DirectAsync(string prompt)
@@ -156,7 +156,7 @@ public partial class JourneyApi : Node
         }
         catch (TaskCanceledException)
         {
-            GD.PushError("[JourneyApi] chunk request timed out");
+            GD.Print("[JourneyApi] chunk request timed out (LLM slow)");
             return null;
         }
         catch (HttpRequestException e)

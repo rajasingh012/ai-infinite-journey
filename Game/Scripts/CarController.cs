@@ -40,13 +40,13 @@ public partial class CarController : RigidBody3D
     [Export] public NodePath? ChunkedRoadManagerPath { get; set; }
 
     // Off-road penalty tuning
-    private const float OffRoadThrottleScale = 0.25f;  // 25% throttle when wheels off the road
-    private const float OffRoadLateralDrag   = 5.0f;   // Strong sideways drag off-road
+    private const float OffRoadThrottleScale = 0.6f;   // 60% throttle when wheels off the road (was 25%)
+    private const float OffRoadLateralDrag   = 3.0f;   // Same as normal grip (was 5.0 — don't double-penalize)
     // Soft "tractor beam" pulling the car back toward the road centerline
     // when it's off-road. Catches cases where the car has escaped past
     // the side walls (e.g. from a high-speed impact or spawn glitch)
     // and would otherwise be stranded on the grass.
-    private const float OffRoadPullStrength = 50000.0f;  // Newtons at 1m off-road; scales with distance
+    private const float OffRoadPullStrength = 20000.0f;  // Newtons at 1m off-road (was 50000 — gentler tug)
     // Auto-steer assist: when off-road, add a steering nudge pointing
     // toward the road centerline so the car naturally returns to the
     // road even without driver input. Disabled if user is steering hard
@@ -72,6 +72,7 @@ public partial class CarController : RigidBody3D
     // only fires when off-road, so on-road stuck states need this fallback.
     private const float StuckSpeedThreshold = 1.0f;
     private const float StuckBoostSeconds = 5.0f;
+    private const float StuckProgressDistance = 5.0f;   // m — real progress required per StuckBoostSeconds window
     private const float StuckBoostImpulse = 25000.0f;
     private const int StuckBoostRetries = 2;  // After N boosts, teleport to centerline
 
@@ -81,6 +82,8 @@ public partial class CarController : RigidBody3D
     private int _offRoadDebounce;                        // consecutive frames in current off-road state
     private float _flipTimer;                            // seconds spent upside down
     private float _stuckTimer;                           // seconds at near-zero speed
+    private float _stuckPosTimer;                        // seconds since last position check
+    private Vector3 _stuckPosCheckStart;                 // position at last 5s checkpoint
     private int _stuckBoostCount;                        // consecutive boosts without making progress
     private Vector3 _lastStuckPos;                       // position when last boost/teleport fired
     private float _sinceStuckAction;                     // seconds since last stuck boost/teleport
@@ -371,6 +374,21 @@ public partial class CarController : RigidBody3D
             GD.Print($"[Car] stuck resolved (moved {distFromStuckPos:F0}m from last stuck)");
         }
 
+        // Position-based stuck: car must make ≥5m progress in 5s or it's stuck.
+        // Pure velocity check fails when car bounces at 2-3 m/s against
+        // an obstacle (Bug 2026-07-09: car spun in place for 9000 frames
+        // with vel 0-7 m/s, never triggered boost/teleport).
+        _stuckPosTimer += dt;
+        if (_stuckPosTimer >= StuckBoostSeconds)
+        {
+            var distMoved = (GlobalPosition - _stuckPosCheckStart).Length();
+            if (distMoved < StuckProgressDistance)
+            {
+                _stuckTimer = StuckBoostSeconds;  // force trigger below
+            }
+            _stuckPosCheckStart = GlobalPosition;
+            _stuckPosTimer = 0f;
+        }
         if (_stuckTimer >= StuckBoostSeconds && tiltDeg < AutoRightAngleDeg)
         {
             _stuckBoostCount++;
@@ -380,14 +398,17 @@ public partial class CarController : RigidBody3D
             if (_stuckBoostCount > StuckBoostRetries && roadMgr is not null)
             {
                 // Teleport forward along the road centerline, past the obstacle.
-                // Find the nearest centerline point, then jump 25m ahead in -Z.
+                // Jump 50m forward (up from 25) to clear bumpy terrain patches.
                 var p = roadMgr.GetPullVector(GlobalPosition);
                 if (p.Length() > 0.01f)
                 {
                     var cl = GlobalPosition - p;
-                    GlobalPosition = new Vector3(cl.X, cl.Y + 1.5f, cl.Z - 25f);
-                    LinearVelocity = new Vector3(0, 0, -2f);
-                    GD.Print($"[Car] stuck-teleport forward 25m → ({GlobalPosition.X:F1}, {GlobalPosition.Z:F1})");
+                    GlobalPosition = new Vector3(cl.X, cl.Y + 3.0f, cl.Z - 50f);
+                    LinearVelocity = new Vector3(0, -1f, -8f);  // -8 m/s forward to clear bad terrain quickly
+                    _lastStuckPos = GlobalPosition;
+                    _stuckBoostCount = 0;  // reset counter at new position
+                    _sinceStuckAction = 0f;
+                    GD.Print($"[Car] stuck-teleport forward 50m → ({GlobalPosition.X:F1}, {GlobalPosition.Z:F1})");
                 }
             }
             else
@@ -422,6 +443,7 @@ public partial class CarController : RigidBody3D
             _debugLogCounter = 0;
             var rollInfo = tiltDeg > 10f ? $" tilt={tiltDeg:F0}°" : "";
             GD.Print($"[Car] pos=({GlobalPosition.X:F1},{GlobalPosition.Z:F1}) " +
+                     $"y={GlobalPosition.Y:F1} " +
                      $"vel={LinearVelocity.Length():F1} fwd={fwdSpeed:F1} " +
                      $"steer={_steerAngleDeg:F0}°{(autoSteerDeg != 0 ? $"(auto {autoSteerDeg:F0})" : "")} " +
                      $"contacts={contactCount}" + (offRoad ? " OFF_ROAD" : "") + rollInfo);

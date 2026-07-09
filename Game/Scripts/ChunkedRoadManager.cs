@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Godot;
 
 namespace AiInfiniteJourney;
@@ -159,60 +160,19 @@ public partial class ChunkedRoadManager : Node3D
         if (_chunks.Count == 0) FetchNextBatch();
     }
 
-    private async void FetchNextBatch()
+    private void FetchNextBatch()
     {
         if (_fetching) return;
         _fetching = true;
 
-        string? json;
-        if (_api is not null && _car is not null)
-        {
-            // Anchor the API request to the car's current position so chunks
-            // always appear immediately in front of the player, not chained
-            // from a far-away historical end-point.
-            json = await _api.ChunkAsync(
-                _car.Position.X, _car.Position.Z,
-                Theme, 150f);
-        }
-        else
-        {
-            json = null;
-        }
-
-        if (json is null)
-        {
-            GD.Print("[ChunkedRoadManager] API unavailable — using fallback generator");
-            var fallback = BuildFallback();
-            foreach (var chunk in fallback)
-                AddChunkNode(chunk);
-        }
-        else
-        {
-            try
-            {
-                var plan = JsonSerializer.Deserialize<RoadChunkData>(json, JsonOpts);
-                if (plan?.Chunks is { Count: > 0 })
-                {
-                    foreach (var chunk in plan.Chunks)
-                        AddChunkNode(chunk);
-
-                    // Update next end from API's tracked value.
-                    if (_api is not null)
-                    {
-                        _nextChunkEndX = _api.LastChunkEndX;
-                        _nextChunkEndZ = _api.LastChunkEndZ;
-                    }
-                }
-            }
-            catch (JsonException)
-            {
-                GD.PushWarning("[ChunkedRoadManager] Failed to parse chunk JSON, using fallback");
-                var fallback = BuildFallback();
-                foreach (var chunk in fallback)
-                    AddChunkNode(chunk);
-            }
-        }
-
+        // Use the deterministic fallback generator for real-time chunk
+        // streaming — it chains properly from the last chunk end. The
+        // API chunk endpoint is too slow (LLM takes 60-120s) for
+        // real-time gameplay.
+        GD.Print("[ChunkedRoadManager] fallback batch...");
+        var fallback = BuildFallback();
+        foreach (var chunk in fallback)
+            AddChunkNode(chunk);
         _fetching = false;
     }
 
@@ -404,14 +364,20 @@ public partial class ChunkedRoadManager : Node3D
         // --- Invisible side walls to keep the car on the road ---
         // Two thin tall StaticBody3D boxes along the road edges. They have
         // collision but no visible mesh — pure physical barriers.
+        //
+        // The wall INNER edge is at width/2 + carBodyHalfWidth + safety,
+        // so the car's outer edge never overlaps the wall geometry. Without
+        // this clearance, the car body (1.8m wide, half=0.9m) was wedging
+        // 0.04m into the wall at perpendicular chunks, triggering 8-contact
+        // stuck states that the tractor beam + off-road penalty couldn't
+        // escape (Bug 2026-07-09: car wedged in left wall of chunk at Z=-160).
         var perp = new Vector3(-direction.Z, 0, direction.X);
         var wallHeight = 1.5f;
-        // Walls 0.3m thick — the car can briefly clip past at high speed,
-        // but the off-road pull in CarController brings it back. We keep
-        // them thin (not fat) so the car can't get STUCK inside the wall
-        // geometry when the pull yanks it back toward the road.
         var wallThickness = 0.3f;
-        var wallOffset = chunk.Width / 2f + wallThickness / 2f;
+        var carBodyHalfWidth = 0.9f;     // matches PlayerCar.CollisionSize.X/2
+        var wallInnerClearance = 0.2f;   // safety margin
+        var wallInnerEdge = chunk.Width / 2f + carBodyHalfWidth + wallInnerClearance;
+        var wallOffset = wallInnerEdge + wallThickness / 2f;
 
         // Lift walls to road height so they don't intersect terrain below
         // and stay flush with the raised road surface.
@@ -547,6 +513,10 @@ public partial class ChunkedRoadManager : Node3D
         var projection = chunkStart + seg * t;
         var perpDist = (worldPos - projection).Length();
         var halfWidth = width / 2f;
+        // Tight on-road boundary — any car body overlap with the road edge
+        // (or beyond) is treated as off-road. The 1.1× tolerance allowed
+        // the car to drive halfway into a wall while still considered
+        // "on road", causing invisible obstacle contacts (Bug 2026-07-09).
         return (perpDist, halfWidth, perpDist <= halfWidth);
     }
 
@@ -616,12 +586,20 @@ internal sealed class RoadChunkData
 
 internal sealed class ChunkSegment
 {
+    [JsonPropertyName("chunk_id")]
     public int ChunkId { get; init; }
+    [JsonPropertyName("start")]
     public float[] Start { get; init; } = Array.Empty<float>();
+    [JsonPropertyName("end")]
     public float[] End { get; init; } = Array.Empty<float>();
+    [JsonPropertyName("width")]
     public float Width { get; init; } = 8f;
+    [JsonPropertyName("dead_end")]
     public bool DeadEnd { get; init; }
+    [JsonPropertyName("side_left")]
     public string SideLeft { get; init; } = "none";
+    [JsonPropertyName("side_right")]
     public string SideRight { get; init; } = "none";
+    [JsonPropertyName("terrain_bias")]
     public string TerrainBias { get; init; } = "";
 }

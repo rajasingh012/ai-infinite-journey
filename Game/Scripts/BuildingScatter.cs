@@ -46,16 +46,19 @@ public partial class BuildingScatter : Node3D
 
         if (density <= 0) return;
 
-        // Margin from road edge. Must account for obstacle half-size so
-        // buildings don't overlap the road surface. Max building half-size
-        // is 4m (wide 8x8), so buildings need margin ≥ 4m.
-        var margin = sideTheme switch
+        // Margin from road edge to obstacle CENTER. Must account for
+        // obstacle half-size so buildings don't overlap the road surface.
+        // Building wide variant: 8x8m, half=4m. With road half-width 4m,
+        // margin must be ≥ 4 + 4 = 8m. (Bug 2026-07-09: 5m margin placed
+        // building inner edge 1m INSIDE the road, cars drove into buildings.)
+        var maxObstacleHalfSize = sideTheme switch
         {
-            "buildings" => 5f,
-            "trees" => 2f,
-            "rocks" => 1f,
-            _ => 5f,
+            "buildings" => 4f,   // 8x8 wide variant
+            "trees" => 1f,       // 1.2-2.4m diameter, half ≈ 1.2
+            "rocks" => 1.5f,     // 1-3m, max half = 1.5
+            _ => 4f,
         };
+        var margin = width / 2f + maxObstacleHalfSize + 1f;  // +1m safety
 
         var offsetFromCenter = width / 2 + margin;
         var direction = perpendicular * sideMultiplier;
@@ -98,6 +101,7 @@ public partial class BuildingScatter : Node3D
         switch (theme)
         {
             case "buildings":
+            case "sparse_buildings":
             {
                 var roll = rng.NextDouble();
                 if (roll < 0.6) // medium
